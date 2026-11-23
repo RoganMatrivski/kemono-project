@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// A file or attachment. Newer files carry `server`; older ones use the
-/// classic path with no server.
+/// classic path with no server (favorite posts use `node` instead).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct PawchiveFile {
     #[serde(default)]
@@ -13,6 +13,9 @@ pub struct PawchiveFile {
     pub path: String,
     #[serde(default)]
     pub server: Option<String>,
+    /// Numeric file node (`n{node}.pawchive.pw`); used by favorite posts instead of `server`.
+    #[serde(default)]
+    pub node: Option<u32>,
     /// Set on listing items whose full file is not archived (no `server`, so no URL).
     #[serde(default)]
     pub preview_only: Option<bool>,
@@ -24,7 +27,11 @@ impl PawchiveFile {
     /// Note: downloads are hotlink-protected; a direct request without a
     /// pawchive.pw `Referer` gets 403.
     pub fn url(&self) -> Option<Url> {
-        let server = self.server.as_deref()?;
+        let server = match (&self.server, self.node) {
+            (Some(s), _) => s.clone(),
+            (None, Some(n)) => format!("https://n{n}.pawchive.pw"),
+            _ => return None,
+        };
         if self.path.is_empty() {
             return None;
         }
@@ -86,6 +93,15 @@ impl PawchivePost {
     pub fn parsed_tags(&self) -> Vec<String> {
         self.tags.as_deref().map(parse_pg_array).unwrap_or_default()
     }
+}
+
+/// A favorite post: the full post plus `faved_seq`. Its `file` uses `node`, not `server`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct PawchiveFavoritePost {
+    #[serde(flatten)]
+    pub post: PawchivePost,
+    #[serde(default)]
+    pub faved_seq: Option<u64>,
 }
 
 /// A post revision: the full post shape plus `revision_id`. Newest first.

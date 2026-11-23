@@ -13,6 +13,7 @@ tags:
   - name: Posts
   - name: Creators
   - name: Files
+  - name: Account
 paths:
   /v1/posts:
     get:
@@ -283,7 +284,97 @@ paths:
                             type: object
                   discord_posts:
                     type: [array, "null"]
+  /v1/account/favorites:
+    get:
+      tags: [Account]
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [artist, post]
+      responses:
+        '200':
+          description: Favorite creators (profile plus faved_seq, last_imported) or favorite posts (full post plus faved_seq; `file` uses `node`)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+        '401':
+          description: Not logged in (body `{}`)
+  /v1/favorites/creator/{service}/{creator_id}:
+    parameters:
+      - $ref: "#/components/parameters/path-service"
+      - $ref: "#/components/parameters/path-creator-id"
+    post:
+      tags: [Account]
+      summary: Add a favorite creator (idempotent, ID not validated)
+      security:
+        - cookieAuth: []
+      responses:
+        '204':
+          description: Done, empty body
+        '401':
+          description: Not logged in
+    delete:
+      tags: [Account]
+      summary: Remove a favorite creator (idempotent)
+      security:
+        - cookieAuth: []
+      responses:
+        '204':
+          description: Done, empty body
+        '401':
+          description: Not logged in
+  /v1/favorites/post/{service}/{creator_id}/{post_id}:
+    parameters:
+      - $ref: "#/components/parameters/path-service"
+      - $ref: "#/components/parameters/path-creator-id"
+      - $ref: "#/components/parameters/path-post-id"
+    post:
+      tags: [Account]
+      summary: Add a favorite post (idempotent, IDs not validated)
+      security:
+        - cookieAuth: []
+      responses:
+        '204':
+          description: Done, empty body
+        '401':
+          description: Not logged in
+    delete:
+      tags: [Account]
+      summary: Remove a favorite post (idempotent)
+      security:
+        - cookieAuth: []
+      responses:
+        '204':
+          description: Done, empty body
+        '401':
+          description: Not logged in
+  /v1/has_pending_dms:
+    get:
+      tags: [Account]
+      responses:
+        '200':
+          description: "`false` when logged out or nothing pending"
+          content:
+            application/json:
+              schema:
+                type: boolean
 components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: session
+      description: >
+        Obtained by POSTing the website form (username, password, location) to
+        https://pawchive.pw/account/login; success is a 302 not pointing back at /account/login.
   parameters:
     path-service:
       name: service

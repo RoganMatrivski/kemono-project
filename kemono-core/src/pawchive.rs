@@ -1,10 +1,13 @@
 //! Client for Pawchive (https://pawchive.pw), a Kemono fork.
 
+use reqwest::{Client, Method, header, redirect};
+
 use crate::client::HttpCore;
 use crate::error::Error;
 use crate::types::pawchive::{
     PawchiveComment, PawchiveCreatorListItem, PawchiveCreatorProfile, PawchiveFancard,
-    PawchiveHashSearch, PawchivePost, PawchivePostSummary, PawchiveRevision, PawchiveTagCount,
+    PawchiveFavoriteCreator, PawchiveFavoritePost, PawchiveHashSearch, PawchivePost,
+    PawchivePostSummary, PawchiveRevision, PawchiveTagCount,
 };
 
 /// Pawchive serves 50 results per page; `o` must be a multiple of this.
@@ -23,10 +26,120 @@ impl Default for PawchiveClient {
 
 impl PawchiveClient {
     /// `base_url` is e.g. "https://pawchive.pw/api" (no trailing slash).
+    ///
+    /// The client keeps a cookie jar (for [`login`](Self::login)) and does not follow redirects.
     pub fn new(base_url: &str) -> Self {
+        let client = Client::builder()
+            .user_agent("kemono-rs/0.1.0")
+            .gzip(true)
+            .cookie_store(true)
+            .redirect(redirect::Policy::none())
+            .build()
+            .unwrap();
         Self {
-            http: HttpCore::new(base_url),
+            http: HttpCore::from_client(client, base_url),
         }
+    }
+
+    /// Log in through the website form (there is no JSON login). On success the
+    /// `session` cookie is kept for later account calls. A rejected login is
+    /// [`Error::Unauthorized`].
+    pub async fn login(&self, username: &str, password: &str) -> Result<(), Error> {
+        let root = self.http.base_url().trim_end_matches("/api");
+        let resp = self
+            .http
+            .client()
+            .post(format!("{root}/account/login"))
+            .form(&[
+                ("username", username),
+                ("password", password),
+                ("location", "/artists"),
+            ])
+            .send()
+            .await?;
+        let location = resp
+            .headers()
+            .get(header::LOCATION)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        // Success redirects to /artists?logged_in=yes; failure back to /account/login.
+        if resp.status().is_redirection() && !location.starts_with("/account/login") {
+            Ok(())
+        } else if resp.status().is_redirection() {
+            Err(Error::Unauthorized)
+        } else {
+            Error::check(resp).await.and(Err(Error::Unauthorized))
+        }
+    }
+
+    /// `GET /v1/account/favorites?type=artist` (needs login; else [`Error::Unauthorized`]).
+    pub async fn favorite_creators(&self) -> Result<Vec<PawchiveFavoriteCreator>, Error> {
+        let url = format!("{}/v1/account/favorites", self.http.base_url());
+        self.http.get_json(url, &[("type", "artist".into())]).await
+    }
+
+    /// `GET /v1/account/favorites?type=post` (needs login).
+    pub async fn favorite_posts(&self) -> Result<Vec<PawchiveFavoritePost>, Error> {
+        let url = format!("{}/v1/account/favorites", self.http.base_url());
+        self.http.get_json(url, &[("type", "post".into())]).await
+    }
+
+    /// `POST /v1/favorites/creator/{service}/{id}`. Idempotent; the ID is not validated by the server.
+    pub async fn add_favorite_creator(&self, service: &str, creator_id: &str) -> Result<(), Error> {
+        self.fav_creator(Method::POST, service, creator_id).await
+    }
+
+    /// `DELETE /v1/favorites/creator/{service}/{id}`. Idempotent.
+    pub async fn remove_favorite_creator(
+        &self,
+        service: &str,
+        creator_id: &str,
+    ) -> Result<(), Error> {
+        self.fav_creator(Method::DELETE, service, creator_id).await
+    }
+
+    /// `POST /v1/favorites/post/{service}/{creator_id}/{post_id}`. Idempotent.
+    pub async fn add_favorite_post(
+        &self,
+        service: &str,
+        creator_id: &str,
+        post_id: &str,
+    ) -> Result<(), Error> {
+        self.fav_post(Method::POST, service, creator_id, post_id)
+            .await
+    }
+
+    /// `DELETE /v1/favorites/post/{service}/{creator_id}/{post_id}`. Idempotent.
+    pub async fn remove_favorite_post(
+        &self,
+        service: &str,
+        creator_id: &str,
+        post_id: &str,
+    ) -> Result<(), Error> {
+        self.fav_post(Method::DELETE, service, creator_id, post_id)
+            .await
+    }
+
+    async fn fav_creator(&self, m: Method, service: &str, id: &str) -> Result<(), Error> {
+        let url = format!(
+            "{}/v1/favorites/creator/{service}/{id}",
+            self.http.base_url()
+        );
+        self.http.send_no_content(m, url).await
+    }
+
+    async fn fav_post(&self, m: Method, service: &str, id: &str, post: &str) -> Result<(), Error> {
+        let url = format!(
+            "{}/v1/favorites/post/{service}/{id}/{post}",
+            self.http.base_url()
+        );
+        self.http.send_no_content(m, url).await
+    }
+
+    /// `GET /v1/has_pending_dms`; `false` when logged out.
+    pub async fn has_pending_dms(&self) -> Result<bool, Error> {
+        let url = format!("{}/v1/has_pending_dms", self.http.base_url());
+        self.http.get_json(url, &[]).await
     }
 
     /// A creator's posts (full shape), 50 per page.
@@ -286,5 +399,39 @@ mod live {
         assert!(res.posts[0].file.url().is_some());
         let all = c.get_creators().await.unwrap();
         assert!(all.len() > 90_000);
+    }
+
+    /// Needs `PAWCHIVE_USER` / `PAWCHIVE_PASS` (a disposable account). Adds then removes one favorite.
+    #[tokio::test]
+    #[ignore = "hits pawchive.pw with an account"]
+    async fn live_account() {
+        let (Ok(u), Ok(p)) = (
+            std::env::var("PAWCHIVE_USER"),
+            std::env::var("PAWCHIVE_PASS"),
+        ) else {
+            panic!("set PAWCHIVE_USER and PAWCHIVE_PASS");
+        };
+        let c = PawchiveClient::default();
+        assert!(matches!(
+            c.favorite_creators().await,
+            Err(Error::Unauthorized)
+        ));
+        assert!(matches!(
+            c.login(&u, "definitely-wrong").await,
+            Err(Error::Unauthorized)
+        ));
+        c.login(&u, &p).await.unwrap();
+        let _ = c.has_pending_dms().await.unwrap();
+        let (svc, id) = ("patreon", "110390090");
+        c.add_favorite_creator(svc, id).await.unwrap();
+        let got = c.favorite_creators().await;
+        c.remove_favorite_creator(svc, id).await.unwrap(); // clean up before asserting
+        assert!(got.unwrap().iter().any(|f| f.profile.id == id));
+        c.add_favorite_post(svc, id, "176121337").await.unwrap();
+        let got = c.favorite_posts().await;
+        c.remove_favorite_post(svc, id, "176121337").await.unwrap();
+        let got = got.unwrap();
+        assert!(got.iter().any(|f| f.post.id == "176121337"));
+        assert!(got[0].post.file.url().is_some());
     }
 }

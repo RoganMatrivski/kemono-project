@@ -25,6 +25,17 @@ pub struct PawchiveCreatorProfile {
     pub reimport_pending: Option<bool>,
 }
 
+/// `GET /v1/account/favorites?type=artist` item: the profile plus favorite bookkeeping.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PawchiveFavoriteCreator {
+    #[serde(flatten)]
+    pub profile: PawchiveCreatorProfile,
+    #[serde(default)]
+    pub faved_seq: Option<u64>,
+    #[serde(default)]
+    pub last_imported: Option<DateTime>,
+}
+
 /// One item of `GET /v1/creators` (the whole site, ~16 MB).
 /// `indexed`/`updated` are Unix seconds here, unlike the profile.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -93,6 +104,18 @@ mod tests {
         let c: PawchiveCreatorListItem = serde_json::from_str(j).unwrap();
         assert_eq!(c.indexed.as_second(), 1785423600);
         assert_eq!(serde_json::to_value(&c).unwrap()["updated"], 1795222800);
+    }
+
+    #[test]
+    fn favorite_creator() {
+        let j = r#"{"id":"1","name":"G","service":"patreon","indexed":"2026-06-10T21:00:00",
+          "updated":"2026-11-23T13:00:00","public_id":"G","relation_id":null,"ever_imported":true,
+          "kemono_favorited":151,"reimport_pending":false,"faved_seq":34694823,
+          "last_imported":"2026-11-23T13:00:00"}"#;
+        let f: PawchiveFavoriteCreator = serde_json::from_str(j).unwrap();
+        assert_eq!(f.faved_seq, Some(34694823));
+        assert_eq!(f.profile.kemono_favorited, Some(151));
+        assert!(f.last_imported.is_some());
     }
 
     #[test]

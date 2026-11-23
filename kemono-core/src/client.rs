@@ -39,6 +39,13 @@ impl HttpCore {
         &self.client
     }
 
+    /// Send `method` to `url` and expect an empty success body (e.g. 204).
+    pub async fn send_no_content(&self, method: reqwest::Method, url: String) -> Result<(), Error> {
+        let resp = self.client.request(method, url).send().await?;
+        Error::check(resp).await?;
+        Ok(())
+    }
+
     /// GET `url`, map non-2xx to [`Error`], decode the JSON body.
     pub async fn get_json<T: DeserializeOwned>(
         &self,
