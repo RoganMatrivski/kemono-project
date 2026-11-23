@@ -174,6 +174,34 @@ impl PawchiveClient {
         self.http.get_json(url, &params).await
     }
 
+    /// Fetches every page of a creator's posts, 50 at a time, until a short page.
+    ///
+    /// `max_pages` caps the number of requests (`None` = unbounded; a large creator
+    /// can mean hundreds of requests). Filters behave as in [`get_user_posts`](Self::get_user_posts).
+    pub async fn get_all_user_posts(
+        &self,
+        service: &str,
+        creator_id: &str,
+        tag: Option<&str>,
+        q: Option<&str>,
+        max_pages: Option<u32>,
+    ) -> Result<Vec<PawchivePost>, Error> {
+        let mut all = Vec::new();
+        let mut page = 0u32;
+        while max_pages.is_none_or(|m| page < m) {
+            let batch = self
+                .get_user_posts(service, creator_id, tag, Some(page * PAGE_SIZE), q)
+                .await?;
+            let last = is_last_page(batch.len());
+            all.extend(batch);
+            if last {
+                break;
+            }
+            page += 1;
+        }
+        Ok(all)
+    }
+
     /// `GET /v1/{service}/user/{creator_id}/post/{post_id}`
     pub async fn get_post(
         &self,
@@ -319,10 +347,27 @@ impl PawchiveClient {
     }
 }
 
+/// A page with fewer than [`PAGE_SIZE`] items is the final one.
+fn is_last_page(len: usize) -> bool {
+    len < PAGE_SIZE as usize
+}
+
 fn empty_on_404<T>(r: Result<Vec<T>, Error>) -> Result<Vec<T>, Error> {
     match r {
         Err(Error::NotFound) => Ok(Vec::new()),
         other => other,
+    }
+}
+
+#[cfg(test)]
+mod unit {
+    use super::*;
+
+    #[test]
+    fn last_page_rule() {
+        assert!(is_last_page(0));
+        assert!(is_last_page(49));
+        assert!(!is_last_page(50));
     }
 }
 
@@ -433,5 +478,32 @@ mod live {
         let got = got.unwrap();
         assert!(got.iter().any(|f| f.post.id == "176121337"));
         assert!(got[0].post.file.url().is_some());
+    }
+
+    #[tokio::test]
+    #[ignore = "hits pawchive.pw"]
+    async fn live_pagination() {
+        let c = PawchiveClient::default();
+        let two = c
+            .get_all_user_posts("patreon", "110390090", None, None, Some(2))
+            .await
+            .unwrap();
+        let p0 = c
+            .get_user_posts("patreon", "110390090", None, Some(0), None)
+            .await
+            .unwrap();
+        let p1 = c
+            .get_user_posts("patreon", "110390090", None, Some(50), None)
+            .await
+            .unwrap();
+        let expect: Vec<_> = p0.iter().chain(&p1).map(|p| p.id.clone()).collect();
+        let got: Vec<_> = two.iter().map(|p| p.id.clone()).collect();
+        assert_eq!(got, expect);
+        // a filter that matches little ends on the first short page
+        let tagged = c
+            .get_all_user_posts("patreon", "110390090", Some("Steins;Gate"), None, None)
+            .await
+            .unwrap();
+        assert!(tagged.len() < 50 && !tagged.is_empty());
     }
 }
