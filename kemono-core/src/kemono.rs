@@ -1,7 +1,6 @@
 //! This file is generated from kemono.yaml. Do not edit.
 
 use reqwest::Client;
-use serde::Deserialize;
 
 use crate::types::post::{PostRoot, PostSummary};
 

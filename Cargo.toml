@@ -1,1 +1,3 @@
-workspace = { members = ["kemono-core"] }
+[workspace]
+members = ["kemono-core"]
+resolver = "3"
