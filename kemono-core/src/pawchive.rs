@@ -3,7 +3,10 @@
 use reqwest::Client;
 
 use crate::error::Error;
-use crate::types::pawchive::{PawchiveCreatorProfile, PawchivePost};
+use crate::types::pawchive::{
+    PawchiveComment, PawchiveCreatorListItem, PawchiveCreatorProfile, PawchiveFancard,
+    PawchiveHashSearch, PawchivePost, PawchivePostSummary, PawchiveRevision, PawchiveTagCount,
+};
 
 /// Pawchive serves 50 results per page; `o` must be a multiple of this.
 pub const PAGE_SIZE: u32 = 50;
@@ -83,6 +86,105 @@ impl PawchiveClient {
         self.get_json(url, &[]).await
     }
 
+    /// Recent posts site-wide (listing shape), 50 per page. `GET /v1/posts`
+    pub async fn get_posts(
+        &self,
+        q: Option<&str>,
+        offset: Option<u32>,
+    ) -> Result<Vec<PawchivePostSummary>, Error> {
+        let mut params: Vec<(&str, String)> = Vec::new();
+        if let Some(q) = q {
+            params.push(("q", q.to_string()));
+        }
+        if let Some(o) = offset {
+            params.push(("o", o.to_string()));
+        }
+        self.get_json(format!("{}/v1/posts", self.base_url), &params)
+            .await
+    }
+
+    /// Every creator on the site in one response (~16 MB). `GET /v1/creators`
+    pub async fn get_creators(&self) -> Result<Vec<PawchiveCreatorListItem>, Error> {
+        self.get_json(format!("{}/v1/creators", self.base_url), &[])
+            .await
+    }
+
+    fn user_url(&self, service: &str, creator_id: &str, tail: &str) -> String {
+        format!(
+            "{}/v1/{}/user/{}/{}",
+            self.base_url, service, creator_id, tail
+        )
+    }
+
+    /// `GET /v1/{service}/user/{creator_id}/tags`
+    pub async fn get_tags(
+        &self,
+        service: &str,
+        creator_id: &str,
+    ) -> Result<Vec<PawchiveTagCount>, Error> {
+        self.get_json(self.user_url(service, creator_id, "tags"), &[])
+            .await
+    }
+
+    /// Linked accounts of the creator. `GET /v1/{service}/user/{creator_id}/links`
+    pub async fn get_links(
+        &self,
+        service: &str,
+        creator_id: &str,
+    ) -> Result<Vec<PawchiveCreatorProfile>, Error> {
+        self.get_json(self.user_url(service, creator_id, "links"), &[])
+            .await
+    }
+
+    /// Announcements; the item shape is unknown (every sampled creator had none), so raw JSON.
+    /// `GET /v1/{service}/user/{creator_id}/announcements`
+    pub async fn get_announcements(
+        &self,
+        service: &str,
+        creator_id: &str,
+    ) -> Result<Vec<serde_json::Value>, Error> {
+        self.get_json(self.user_url(service, creator_id, "announcements"), &[])
+            .await
+    }
+
+    /// Fanbox fancards (other services return `[]`). `GET /v1/{service}/user/{creator_id}/fancards`
+    pub async fn get_fancards(
+        &self,
+        service: &str,
+        creator_id: &str,
+    ) -> Result<Vec<PawchiveFancard>, Error> {
+        self.get_json(self.user_url(service, creator_id, "fancards"), &[])
+            .await
+    }
+
+    /// Comments on a post; the server's 404 for "none" becomes an empty list.
+    pub async fn get_comments(
+        &self,
+        service: &str,
+        creator_id: &str,
+        post_id: &str,
+    ) -> Result<Vec<PawchiveComment>, Error> {
+        let url = self.user_url(service, creator_id, &format!("post/{post_id}/comments"));
+        empty_on_404(self.get_json(url, &[]).await)
+    }
+
+    /// Revisions, newest first; the server's 404 for "none" becomes an empty list.
+    pub async fn get_revisions(
+        &self,
+        service: &str,
+        creator_id: &str,
+        post_id: &str,
+    ) -> Result<Vec<PawchiveRevision>, Error> {
+        let url = self.user_url(service, creator_id, &format!("post/{post_id}/revisions"));
+        empty_on_404(self.get_json(url, &[]).await)
+    }
+
+    /// Posts containing a file with this SHA-256. `GET /v1/search_hash/{sha256}`
+    pub async fn search_hash(&self, sha256: &str) -> Result<PawchiveHashSearch, Error> {
+        self.get_json(format!("{}/v1/search_hash/{}", self.base_url, sha256), &[])
+            .await
+    }
+
     /// `GET /v1/{service}/user/{creator_id}/profile`
     pub async fn get_profile(
         &self,
@@ -94,6 +196,13 @@ impl PawchiveClient {
             self.base_url, service, creator_id
         );
         self.get_json(url, &[]).await
+    }
+}
+
+fn empty_on_404<T>(r: Result<Vec<T>, Error>) -> Result<Vec<T>, Error> {
+    match r {
+        Err(Error::NotFound) => Ok(Vec::new()),
+        other => other,
     }
 }
 
@@ -129,5 +238,46 @@ mod live {
         assert!(matches!(r, Err(Error::BadRequest(_))), "{r:?}");
         let r = c.get_post("patreon", "110390090", "0").await;
         assert!(matches!(r, Err(Error::NotFound)), "{r:?}");
+    }
+
+    #[tokio::test]
+    #[ignore = "hits pawchive.pw"]
+    async fn live_read_only() {
+        let c = PawchiveClient::default();
+        assert_eq!(c.get_posts(None, Some(0)).await.unwrap().len(), 50);
+        let tags = c.get_tags("patreon", "110390090").await.unwrap();
+        assert!(!tags.is_empty());
+        let links = c.get_links("fanbox", "37736420").await.unwrap();
+        assert!(links.iter().any(|l| l.relation_id.is_some()));
+        assert!(
+            !c.get_fancards("fanbox", "37736420")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        c.get_announcements("patreon", "110390090").await.unwrap();
+        // no comments / revisions -> empty, not an error
+        assert!(
+            c.get_comments("patreon", "110390090", "176121337")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            c.get_revisions("patreon", "110390090", "176121337")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        let found = c
+            .get_comments("patreon", "90235213", "176154456")
+            .await
+            .unwrap();
+        assert!(!found.is_empty());
+        let h = "44ad9682c02ecfec5b55e0d06cbba9d4d9d11d10895ee859be2588a714d33577";
+        let res = c.search_hash(h).await.unwrap();
+        assert!(res.posts[0].file.url().is_some());
+        let all = c.get_creators().await.unwrap();
+        assert!(all.len() > 90_000);
     }
 }

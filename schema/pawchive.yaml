@@ -81,6 +81,61 @@ paths:
                       type: string
                     post_count:
                       type: integer
+  /v1/{service}/user/{creator_id}/links:
+    get:
+      tags: [Creators]
+      summary: Linked accounts (profile-shaped items, plus kemono_favorited and reimport_pending)
+      parameters:
+        - $ref: "#/components/parameters/path-service"
+        - $ref: "#/components/parameters/path-creator-id"
+      responses:
+        '200':
+          description: "`[]` when there are none"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  allOf:
+                    - $ref: "#/components/schemas/creator-profile"
+                    - type: object
+                      properties:
+                        kemono_favorited:
+                          type: integer
+                        reimport_pending:
+                          type: boolean
+  /v1/{service}/user/{creator_id}/announcements:
+    get:
+      tags: [Creators]
+      description: Item shape unknown (every sampled creator had none).
+      parameters:
+        - $ref: "#/components/parameters/path-service"
+        - $ref: "#/components/parameters/path-creator-id"
+      responses:
+        '200':
+          description: "`[]` when there are none"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+  /v1/{service}/user/{creator_id}/fancards:
+    get:
+      tags: [Creators]
+      description: Fanbox only; other services return `[]`.
+      parameters:
+        - $ref: "#/components/parameters/path-service"
+        - $ref: "#/components/parameters/path-creator-id"
+      responses:
+        '200':
+          description: Fancards
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/fancard"
   /v1/{service}/user/{creator_id}/posts:
     get:
       tags: [Posts]
@@ -294,6 +349,37 @@ components:
           type: string
         server:
           type: string
+        preview_only:
+          type: boolean
+          description: Listing items whose full file is not archived (no `server`).
+    fancard:
+      type: object
+      properties:
+        id:
+          type: integer
+        user_id:
+          type: string
+        file_id:
+          type: integer
+        price:
+          type: string
+        hash:
+          type: string
+        mtime:
+          $ref: "#/components/schemas/datetime"
+        ctime:
+          $ref: "#/components/schemas/datetime"
+        mime:
+          type: string
+        ext:
+          type: string
+          description: Includes the dot, e.g. `.webp`
+        added:
+          $ref: "#/components/schemas/datetime"
+        size:
+          type: integer
+        ihash:
+          type: [string, "null"]
     creator-list-item:
       type: object
       properties:

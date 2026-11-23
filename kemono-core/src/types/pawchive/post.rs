@@ -13,6 +13,9 @@ pub struct PawchiveFile {
     pub path: String,
     #[serde(default)]
     pub server: Option<String>,
+    /// Set on listing items whose full file is not archived (no `server`, so no URL).
+    #[serde(default)]
+    pub preview_only: Option<bool>,
 }
 
 impl PawchiveFile {
@@ -83,6 +86,14 @@ impl PawchivePost {
     pub fn parsed_tags(&self) -> Vec<String> {
         self.tags.as_deref().map(parse_pg_array).unwrap_or_default()
     }
+}
+
+/// A post revision: the full post shape plus `revision_id`. Newest first.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct PawchiveRevision {
+    pub revision_id: u64,
+    #[serde(flatten)]
+    pub post: PawchivePost,
 }
 
 /// Listing shape from `GET /v1/posts` (has `substring` instead of `content`).
@@ -181,5 +192,15 @@ mod tests {
         let p: PawchivePost = serde_json::from_str(j).unwrap();
         assert!(p.parsed_tags().is_empty());
         assert!(p.published.is_some());
+    }
+
+    #[test]
+    fn revision_and_preview_only() {
+        let j = r#"{"revision_id":7,"id":"1","user":"2","service":"patreon","title":"t","content":"c",
+          "file":{"name":"a.png","path":"/ff/2c/x.png","preview_only":true},"next":null}"#;
+        let r: PawchiveRevision = serde_json::from_str(j).unwrap();
+        assert_eq!(r.revision_id, 7);
+        assert_eq!(r.post.file.preview_only, Some(true));
+        assert!(r.post.file.url().is_none());
     }
 }
