@@ -1,0 +1,337 @@
+openapi: 3.1.0
+info:
+  title: Kemono API
+  version: 1.3.0
+  contact:
+    email: contact@kemono.party
+servers:
+  - url: https://kemono.su/api
+  - url: https://coomer.su/api
+tags:
+  - name: Posts
+    description: Version one
+paths:
+  /v1/{service}/user/{creator_id}/posts:
+    get:
+      description: A duct-tape endpoint which also returns count for pagination component.
+      parameters:
+        - $ref: "#/components/parameters/path-service"
+        - $ref: "#/components/parameters/path-creator-id"
+        - name: tag
+          in: query
+          description: A list of post tags
+          schema:
+            type: array
+      responses:
+        '200':
+          description: Found posts of the profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  props:
+                    type: object
+                    properties:
+                      currentPage:
+                        const: posts
+                      id:
+                        type: string
+                      service:
+                        type: string
+                      name:
+                        type: string
+                      count:
+                        type: integer
+                      limit:
+                        type: integer
+                      artist:
+                        $ref: "#/components/schemas/artist"
+                      display_data:
+                        type: object
+                        properties:
+                          service:
+                            type: string
+                          href:
+                            type: string
+                      dm_count:
+                        type: integer
+                      share_count:
+                        type: integer
+                      has_links:
+                        type: string
+                  base:
+                    type: object
+                  results:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/post"
+                  result_previews:
+                    type: array
+                    items:
+                      type: object
+                  result_attachments:
+                    type: array
+                    items:
+                      type: object
+                  result_is_image:
+                    type: array
+                    items:
+                      type: boolean
+                  disable_service_icons:
+                    const: true
+  /v1/{service}/user/{creator_id}/post/{post_id}:
+    get:
+      summary: Get a specific post
+      tags:
+        - Posts
+      parameters:
+        - $ref: "#/components/parameters/path-service"
+        - $ref: "#/components/parameters/path-creator-id"
+        - $ref: "#/components/parameters/path-post-id"
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  post:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      user:
+                        type: string
+                      service:
+                        type: string
+                      title:
+                        type: string
+                      content:
+                        type: string
+                      embed:
+                        type: object
+                      shared_file:
+                        type: boolean
+                      added:
+                        type: string
+                        format: date-time
+                      published:
+                        type: string
+                        format: date-time
+                      edited:
+                        type: string
+                        format: date-time
+                      file:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          path:
+                            type: string
+                      attachments:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            path:
+                              type: string
+                      next:
+                        type: string
+                      prev:
+                        type: string
+                  attachments:
+                    type: array
+                  previews:
+                    type: array
+                  videos:
+                    type: array
+                  props:
+                    type: object
+                    properties:
+                      service:
+                        type: string
+                      flagged:
+                        type: integer
+                      revisions:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/post-revision"
+              example:
+                post:
+                  id: '1836570'
+                  user: '6570768'
+                  service: fanbox
+                  title: 今日はFANBOXを始まりました！
+                  content: <p>みなさんこんにちは、影おじです。</p><p>先週のように、FANBOXを始まりに決定しました！</p><p>そしてFANBOXの更新内容について、アンケートのみなさん</p><p>ありがとうございました！</p><p><br/></p><p>では更新内容の詳しいことはこちらです↓</p><p>毎回の絵、元も差分がありませんの場合、ボナスとして差分イラストを支援者の皆様にプレゼント。</p><p>もとも差分があれば、ボナスとしてヌード差分イラストを支援者の皆様にプレゼント。</p><p><br/></p><p>これから、仕事以外の時間、できる限り勤勉な更新したいと思います！</p><p>どうぞよろしくお願いいたします！</p>
+                  embed: { }
+                  shared_file: false
+                  added: '2021-03-30T18:00:05.973913'
+                  published: '2021-01-24T17:54:38'
+                  edited: '2021-01-24T18:46:15'
+                  file:
+                    name: a99d9674-5490-400e-acca-4bed99590699.jpg
+                    path: /5c/98/5c984d1f62f0990a0891d8fa359aecdff6ac1e26ac165ba7bb7f31cc99e7a674.jpg
+                  attachments: [ ]
+                  next: null
+                  prev: '1836649'
+        '404':
+          description: Post not found
+components:
+  parameters:
+    path-service:
+      name: service
+      in: path
+      description: The service where the creator is located
+      required: true
+      schema:
+        type: string
+    path-creator-id:
+      name: creator_id
+      in: path
+      description: ID of the creator
+      required: true
+      schema:
+        type: string
+    path-post-id:
+      name: post_id
+      in: path
+      description: ID of the post
+      required: true
+      schema:
+        type: string
+    path-page:
+      name: page
+      in: path
+      description: Page of the collection.
+      required: true
+      schema:
+        $ref: "#/components/schemas/positive-integer"
+    query-q:
+      name: q
+      in: query
+      description: Search query
+      schema:
+         type: string
+         minLength: 3
+    query-o:
+      name: o
+      in: query
+      description: Result offset, stepping of 50 is enforced
+      schema:
+        type: integer
+  securitySchemes:
+    cookieAuth:
+      description: Session key that can be found in cookies after a successful login
+      type: apiKey
+      in: cookie
+      name: session
+  schemas:
+
+    non-negative-integer:
+      title: NonNegativeInteger
+      description: Integer which cannot be below zero.
+      type: integer
+      minimum: 0
+    positive-integer:
+      title: PositiveInteger
+      description: Integer which is always above zero.
+      type: integer
+      minimum: 1
+    artist:
+      title: Artist
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        service:
+          type: string
+        indexed:
+          type: string
+        updated:
+          type: string
+        public_id:
+          type: string
+        relation_id:
+          type: integer
+    post:
+      title: Post
+      type: object
+      properties:
+        id:
+          type: string
+        user:
+          type: string
+        service:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+        embed:
+          type: object
+        shared_file:
+          type: boolean
+        added:
+          type: string
+        published:
+          type: string
+        edited:
+          type: string
+        file:
+          type: object
+        attachments:
+          type: array
+          items:
+            type: object
+    post-revision:
+      title: PostRevision
+      type: object
+      properties:
+        revision_id:
+          $ref: "#/components/schemas/positive-integer"
+        id:
+          type: string
+        user:
+          type: string
+        service:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+        embed:
+          type: object
+        shared_file:
+          anyOf:
+            - type: boolean
+            - const: "0"
+        added:
+          type: string
+        published:
+          type: string
+        edited:
+          type: string
+        file:
+          type: object
+        attachments:
+          type: array
+          items:
+            type: object
+        size:
+          $ref: "#/components/schemas/non-negative-integer"
+        ihash:
+          type: string
+        poll:
+          type: object
+        tags:
+          type: array
+          items:
+            type: string
+        captions:
+          type: object
