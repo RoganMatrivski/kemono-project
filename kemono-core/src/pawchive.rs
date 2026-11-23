@@ -1,7 +1,6 @@
 //! Client for Pawchive (https://pawchive.pw), a Kemono fork.
 
-use reqwest::Client;
-
+use crate::client::HttpCore;
 use crate::error::Error;
 use crate::types::pawchive::{
     PawchiveComment, PawchiveCreatorListItem, PawchiveCreatorProfile, PawchiveFancard,
@@ -13,8 +12,7 @@ pub const PAGE_SIZE: u32 = 50;
 
 #[derive(Debug)]
 pub struct PawchiveClient {
-    client: Client,
-    base_url: String,
+    http: HttpCore,
 }
 
 impl Default for PawchiveClient {
@@ -27,22 +25,8 @@ impl PawchiveClient {
     /// `base_url` is e.g. "https://pawchive.pw/api" (no trailing slash).
     pub fn new(base_url: &str) -> Self {
         Self {
-            client: Client::builder()
-                .user_agent("kemono-rs/0.1.0")
-                .gzip(true)
-                .build()
-                .unwrap(),
-            base_url: base_url.trim_end_matches('/').to_string(),
+            http: HttpCore::new(base_url),
         }
-    }
-
-    async fn get_json<T: serde::de::DeserializeOwned>(
-        &self,
-        url: String,
-        params: &[(&str, String)],
-    ) -> Result<T, Error> {
-        let resp = self.client.get(url).query(params).send().await?;
-        Ok(Error::check(resp).await?.json().await?)
     }
 
     /// A creator's posts (full shape), 50 per page.
@@ -58,7 +42,12 @@ impl PawchiveClient {
         offset: Option<u32>,
         q: Option<&str>,
     ) -> Result<Vec<PawchivePost>, Error> {
-        let url = format!("{}/v1/{}/user/{}/posts", self.base_url, service, creator_id);
+        let url = format!(
+            "{}/v1/{}/user/{}/posts",
+            self.http.base_url(),
+            service,
+            creator_id
+        );
         let mut params: Vec<(&str, String)> = Vec::new();
         if let Some(t) = tag {
             params.push(("tag", t.to_string()));
@@ -69,7 +58,7 @@ impl PawchiveClient {
         if let Some(q) = q {
             params.push(("q", q.to_string()));
         }
-        self.get_json(url, &params).await
+        self.http.get_json(url, &params).await
     }
 
     /// `GET /v1/{service}/user/{creator_id}/post/{post_id}`
@@ -81,9 +70,12 @@ impl PawchiveClient {
     ) -> Result<PawchivePost, Error> {
         let url = format!(
             "{}/v1/{}/user/{}/post/{}",
-            self.base_url, service, creator_id, post_id
+            self.http.base_url(),
+            service,
+            creator_id,
+            post_id
         );
-        self.get_json(url, &[]).await
+        self.http.get_json(url, &[]).await
     }
 
     /// Recent posts site-wide (listing shape), 50 per page. `GET /v1/posts`
@@ -99,20 +91,25 @@ impl PawchiveClient {
         if let Some(o) = offset {
             params.push(("o", o.to_string()));
         }
-        self.get_json(format!("{}/v1/posts", self.base_url), &params)
+        self.http
+            .get_json(format!("{}/v1/posts", self.http.base_url()), &params)
             .await
     }
 
     /// Every creator on the site in one response (~16 MB). `GET /v1/creators`
     pub async fn get_creators(&self) -> Result<Vec<PawchiveCreatorListItem>, Error> {
-        self.get_json(format!("{}/v1/creators", self.base_url), &[])
+        self.http
+            .get_json(format!("{}/v1/creators", self.http.base_url()), &[])
             .await
     }
 
     fn user_url(&self, service: &str, creator_id: &str, tail: &str) -> String {
         format!(
             "{}/v1/{}/user/{}/{}",
-            self.base_url, service, creator_id, tail
+            self.http.base_url(),
+            service,
+            creator_id,
+            tail
         )
     }
 
@@ -122,7 +119,8 @@ impl PawchiveClient {
         service: &str,
         creator_id: &str,
     ) -> Result<Vec<PawchiveTagCount>, Error> {
-        self.get_json(self.user_url(service, creator_id, "tags"), &[])
+        self.http
+            .get_json(self.user_url(service, creator_id, "tags"), &[])
             .await
     }
 
@@ -132,7 +130,8 @@ impl PawchiveClient {
         service: &str,
         creator_id: &str,
     ) -> Result<Vec<PawchiveCreatorProfile>, Error> {
-        self.get_json(self.user_url(service, creator_id, "links"), &[])
+        self.http
+            .get_json(self.user_url(service, creator_id, "links"), &[])
             .await
     }
 
@@ -143,7 +142,8 @@ impl PawchiveClient {
         service: &str,
         creator_id: &str,
     ) -> Result<Vec<serde_json::Value>, Error> {
-        self.get_json(self.user_url(service, creator_id, "announcements"), &[])
+        self.http
+            .get_json(self.user_url(service, creator_id, "announcements"), &[])
             .await
     }
 
@@ -153,7 +153,8 @@ impl PawchiveClient {
         service: &str,
         creator_id: &str,
     ) -> Result<Vec<PawchiveFancard>, Error> {
-        self.get_json(self.user_url(service, creator_id, "fancards"), &[])
+        self.http
+            .get_json(self.user_url(service, creator_id, "fancards"), &[])
             .await
     }
 
@@ -165,7 +166,7 @@ impl PawchiveClient {
         post_id: &str,
     ) -> Result<Vec<PawchiveComment>, Error> {
         let url = self.user_url(service, creator_id, &format!("post/{post_id}/comments"));
-        empty_on_404(self.get_json(url, &[]).await)
+        empty_on_404(self.http.get_json(url, &[]).await)
     }
 
     /// Revisions, newest first; the server's 404 for "none" becomes an empty list.
@@ -176,12 +177,16 @@ impl PawchiveClient {
         post_id: &str,
     ) -> Result<Vec<PawchiveRevision>, Error> {
         let url = self.user_url(service, creator_id, &format!("post/{post_id}/revisions"));
-        empty_on_404(self.get_json(url, &[]).await)
+        empty_on_404(self.http.get_json(url, &[]).await)
     }
 
     /// Posts containing a file with this SHA-256. `GET /v1/search_hash/{sha256}`
     pub async fn search_hash(&self, sha256: &str) -> Result<PawchiveHashSearch, Error> {
-        self.get_json(format!("{}/v1/search_hash/{}", self.base_url, sha256), &[])
+        self.http
+            .get_json(
+                format!("{}/v1/search_hash/{}", self.http.base_url(), sha256),
+                &[],
+            )
             .await
     }
 
@@ -193,9 +198,11 @@ impl PawchiveClient {
     ) -> Result<PawchiveCreatorProfile, Error> {
         let url = format!(
             "{}/v1/{}/user/{}/profile",
-            self.base_url, service, creator_id
+            self.http.base_url(),
+            service,
+            creator_id
         );
-        self.get_json(url, &[]).await
+        self.http.get_json(url, &[]).await
     }
 }
 
