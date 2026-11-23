@@ -20,9 +20,9 @@ use reqwest::{Client, Method, header, redirect};
 use crate::client::{DEFAULT_TIMEOUT, HttpCore, RetryPolicy};
 use crate::error::Error;
 use crate::types::pawchive::{
-    PawchiveComment, PawchiveCreatorListItem, PawchiveCreatorProfile, PawchiveFancard,
-    PawchiveFavoriteCreator, PawchiveFavoritePost, PawchiveHashSearch, PawchivePost,
-    PawchivePostSummary, PawchiveRevision, PawchiveTagCount,
+    PawchiveAnnouncement, PawchiveComment, PawchiveCreatorListItem, PawchiveCreatorProfile,
+    PawchiveFancard, PawchiveFavoriteCreator, PawchiveFavoritePost, PawchiveHashSearch,
+    PawchivePost, PawchivePostSummary, PawchiveRevision, PawchiveTagCount,
 };
 
 /// Pawchive serves 50 results per page; `o` must be a multiple of this.
@@ -309,13 +309,13 @@ impl PawchiveClient {
             .await
     }
 
-    /// Announcements; the item shape is unknown (every sampled creator had none), so raw JSON.
+    /// The creator's announcements (HTML content; `[]` when none).
     /// `GET /v1/{service}/user/{creator_id}/announcements`
     pub async fn get_announcements(
         &self,
         service: &str,
         creator_id: &str,
-    ) -> Result<Vec<serde_json::Value>, Error> {
+    ) -> Result<Vec<PawchiveAnnouncement>, Error> {
         self.http
             .get_json(self.user_url(service, creator_id, "announcements"), &[])
             .await
@@ -453,7 +453,14 @@ mod live {
                 .unwrap()
                 .is_empty()
         );
-        c.get_announcements("patreon", "110390090").await.unwrap();
+        assert!(
+            c.get_announcements("patreon", "110390090")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        let ann = c.get_announcements("patreon", "3295915").await.unwrap();
+        assert!(!ann.is_empty() && ann[0].user_id == "3295915");
         // no comments / revisions -> empty, not an error
         assert!(
             c.get_comments("patreon", "110390090", "176121337")

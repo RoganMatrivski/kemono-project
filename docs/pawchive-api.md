@@ -51,7 +51,7 @@ Legend: **S** = in the swagger spec, **B** = called by the frontend bundle, **L*
 | GET | `/{service}/user/{creator_id}/profile` | S L | See below. |
 | GET | `/{service}/user/{creator_id}/links` | S L | `[]` when there are no linked accounts. Items are **profile-shaped** (see `/profile`) plus `kemono_favorited` and `reimport_pending`; `relation_id` was seen non-null (e.g. `622`). |
 | GET | `/{service}/user/{creator_id}/tags` | S L | `[{"tag":"Steins;Gate","post_count":3}, ...]` |
-| GET | `/{service}/user/{creator_id}/announcements` | S L | `[]` when there are none. Item shape still unknown: every creator sampled had none. |
+| GET | `/{service}/user/{creator_id}/announcements` | S L | `[]` when there are none. Items: `{service, user_id, hash, content (HTML), added}`. Example creator with 4 announcements: patreon `3295915`. |
 | GET | `/{service}/user/{creator_id}/fancards` | S L | `fanbox` only. Other services return `200 []`. See below. |
 
 `/creators` item (live):

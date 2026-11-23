@@ -55,6 +55,18 @@ pub struct PawchiveCreatorListItem {
     pub ever_imported: bool,
 }
 
+/// `GET /v1/{service}/user/{id}/announcements` item. `content` is HTML; `hash` identifies the
+/// announcement text (edited versions show up as separate items).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PawchiveAnnouncement {
+    pub service: String,
+    pub user_id: String,
+    pub hash: String,
+    #[serde(default)]
+    pub content: String,
+    pub added: DateTime,
+}
+
 /// `GET /v1/{service}/user/{id}/tags` item.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PawchiveTagCount {
@@ -104,6 +116,15 @@ mod tests {
         let c: PawchiveCreatorListItem = serde_json::from_str(j).unwrap();
         assert_eq!(c.indexed.as_second(), 1785423600);
         assert_eq!(serde_json::to_value(&c).unwrap()["updated"], 1795222800);
+    }
+
+    #[test]
+    fn announcement() {
+        let j = r#"{"service":"patreon","user_id":"3295915","hash":"c3a3","content":"<p>Hi</p>",
+          "added":"2026-08-01T00:00:00"}"#;
+        let a: PawchiveAnnouncement = serde_json::from_str(j).unwrap();
+        assert_eq!(a.user_id, "3295915");
+        assert_eq!(a.added.to_string(), "2026-08-01T00:00:00");
     }
 
     #[test]

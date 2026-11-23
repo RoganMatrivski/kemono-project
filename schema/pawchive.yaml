@@ -108,7 +108,6 @@ paths:
   /v1/{service}/user/{creator_id}/announcements:
     get:
       tags: [Creators]
-      description: Item shape unknown (every sampled creator had none).
       parameters:
         - $ref: "#/components/parameters/path-service"
         - $ref: "#/components/parameters/path-creator-id"
@@ -120,7 +119,7 @@ paths:
               schema:
                 type: array
                 items:
-                  type: object
+                  $ref: "#/components/schemas/announcement"
   /v1/{service}/user/{creator_id}/fancards:
     get:
       tags: [Creators]
@@ -443,6 +442,20 @@ components:
         preview_only:
           type: boolean
           description: Listing items whose full file is not archived (no `server`).
+    announcement:
+      type: object
+      properties:
+        service:
+          type: string
+        user_id:
+          type: string
+        hash:
+          type: string
+        content:
+          type: string
+          description: HTML
+        added:
+          $ref: "#/components/schemas/datetime"
     fancard:
       type: object
       properties:

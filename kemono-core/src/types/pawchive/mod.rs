@@ -7,8 +7,8 @@ pub mod post;
 
 pub use comment::{PawchiveComment, PawchiveCommentRevision};
 pub use creator::{
-    PawchiveCreatorListItem, PawchiveCreatorProfile, PawchiveFancard, PawchiveFavoriteCreator,
-    PawchiveTagCount,
+    PawchiveAnnouncement, PawchiveCreatorListItem, PawchiveCreatorProfile, PawchiveFancard,
+    PawchiveFavoriteCreator, PawchiveTagCount,
 };
 pub use hash::{PawchiveHashFile, PawchiveHashPost, PawchiveHashSearch};
 pub use post::{
