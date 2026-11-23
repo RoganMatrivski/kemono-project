@@ -2,6 +2,7 @@
 
 use reqwest::Client;
 
+use crate::error::Error;
 use crate::types::pawchive::{PawchiveCreatorProfile, PawchivePost};
 
 /// Pawchive serves 50 results per page; `o` must be a multiple of this.
@@ -32,6 +33,15 @@ impl PawchiveClient {
         }
     }
 
+    async fn get_json<T: serde::de::DeserializeOwned>(
+        &self,
+        url: String,
+        params: &[(&str, String)],
+    ) -> Result<T, Error> {
+        let resp = self.client.get(url).query(params).send().await?;
+        Ok(Error::check(resp).await?.json().await?)
+    }
+
     /// A creator's posts (full shape), 50 per page.
     /// `GET /v1/{service}/user/{creator_id}/posts`
     ///
@@ -44,7 +54,7 @@ impl PawchiveClient {
         tag: Option<&str>,
         offset: Option<u32>,
         q: Option<&str>,
-    ) -> Result<Vec<PawchivePost>, reqwest::Error> {
+    ) -> Result<Vec<PawchivePost>, Error> {
         let url = format!("{}/v1/{}/user/{}/posts", self.base_url, service, creator_id);
         let mut params: Vec<(&str, String)> = Vec::new();
         if let Some(t) = tag {
@@ -56,14 +66,7 @@ impl PawchiveClient {
         if let Some(q) = q {
             params.push(("q", q.to_string()));
         }
-        self.client
-            .get(url)
-            .query(&params)
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await
+        self.get_json(url, &params).await
     }
 
     /// `GET /v1/{service}/user/{creator_id}/post/{post_id}`
@@ -72,18 +75,12 @@ impl PawchiveClient {
         service: &str,
         creator_id: &str,
         post_id: &str,
-    ) -> Result<PawchivePost, reqwest::Error> {
+    ) -> Result<PawchivePost, Error> {
         let url = format!(
             "{}/v1/{}/user/{}/post/{}",
             self.base_url, service, creator_id, post_id
         );
-        self.client
-            .get(url)
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await
+        self.get_json(url, &[]).await
     }
 
     /// `GET /v1/{service}/user/{creator_id}/profile`
@@ -91,18 +88,12 @@ impl PawchiveClient {
         &self,
         service: &str,
         creator_id: &str,
-    ) -> Result<PawchiveCreatorProfile, reqwest::Error> {
+    ) -> Result<PawchiveCreatorProfile, Error> {
         let url = format!(
             "{}/v1/{}/user/{}/profile",
             self.base_url, service, creator_id
         );
-        self.client
-            .get(url)
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await
+        self.get_json(url, &[]).await
     }
 }
 
@@ -121,7 +112,22 @@ mod live {
             .await
             .unwrap();
         assert!(!posts.is_empty());
-        let p = c.get_post("patreon", "110390090", "176121337").await.unwrap();
+        let p = c
+            .get_post("patreon", "110390090", "176121337")
+            .await
+            .unwrap();
         assert_eq!(p.id, "176121337");
+    }
+
+    #[tokio::test]
+    #[ignore = "hits pawchive.pw"]
+    async fn live_error_mapping() {
+        let c = PawchiveClient::default();
+        let r = c
+            .get_user_posts("patreon", "110390090", None, Some(25), None)
+            .await;
+        assert!(matches!(r, Err(Error::BadRequest(_))), "{r:?}");
+        let r = c.get_post("patreon", "110390090", "0").await;
+        assert!(matches!(r, Err(Error::NotFound)), "{r:?}");
     }
 }
