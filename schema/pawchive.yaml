@@ -1,0 +1,433 @@
+openapi: 3.1.0
+info:
+  title: Pawchive API (reverse-engineered)
+  version: 1.0.0
+  description: >
+    Reverse-engineered from the live site, the frontend bundle and the (outdated) public swagger
+    spec on 2026-11-23. See docs/pawchive-api.md. Differences from kemono.su: responses are flat
+    (no {post, props} wrapper), timestamps are ISO strings without a timezone (except /creators,
+    which uses Unix seconds), and `tags` is a Postgres array literal string.
+servers:
+  - url: https://pawchive.pw/api
+tags:
+  - name: Posts
+  - name: Creators
+  - name: Files
+paths:
+  /v1/posts:
+    get:
+      tags: [Posts]
+      summary: Recent posts (listing shape)
+      description: "`tag`, `hide` and `only` are ignored here. `q` works with fewer than 3 characters."
+      parameters:
+        - $ref: "#/components/parameters/query-q"
+        - $ref: "#/components/parameters/query-o"
+      responses:
+        '200':
+          description: Up to 50 posts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/post-summary"
+        '400':
+          $ref: "#/components/responses/error"
+  /v1/creators:
+    get:
+      tags: [Creators]
+      summary: Every creator in one response (about 16 MB)
+      responses:
+        '200':
+          description: All creators
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/creator-list-item"
+  /v1/{service}/user/{creator_id}/profile:
+    get:
+      tags: [Creators]
+      parameters:
+        - $ref: "#/components/parameters/path-service"
+        - $ref: "#/components/parameters/path-creator-id"
+      responses:
+        '200':
+          description: Creator profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/creator-profile"
+        '404':
+          $ref: "#/components/responses/error"
+  /v1/{service}/user/{creator_id}/tags:
+    get:
+      tags: [Creators]
+      parameters:
+        - $ref: "#/components/parameters/path-service"
+        - $ref: "#/components/parameters/path-creator-id"
+      responses:
+        '200':
+          description: Tags with post counts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    tag:
+                      type: string
+                    post_count:
+                      type: integer
+  /v1/{service}/user/{creator_id}/posts:
+    get:
+      tags: [Posts]
+      summary: A creator's posts (full shape)
+      description: Alias of `/v1/{service}/user/{creator_id}`; same posts, same order.
+      parameters:
+        - $ref: "#/components/parameters/path-service"
+        - $ref: "#/components/parameters/path-creator-id"
+        - $ref: "#/components/parameters/query-q"
+        - $ref: "#/components/parameters/query-o"
+        - name: tag
+          in: query
+          description: Exact tag name. Repeat to require all tags (AND).
+          schema:
+            type: array
+            items:
+              type: string
+      responses:
+        '200':
+          description: Up to 50 posts; `[]` when nothing matches
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/post"
+        '400':
+          $ref: "#/components/responses/error"
+  /v1/{service}/user/{creator_id}/post/{post_id}:
+    get:
+      tags: [Posts]
+      summary: A single post (full shape plus next/prev)
+      parameters:
+        - $ref: "#/components/parameters/path-service"
+        - $ref: "#/components/parameters/path-creator-id"
+        - $ref: "#/components/parameters/path-post-id"
+      responses:
+        '200':
+          description: Flat post object (no wrapper)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/post"
+                  - type: object
+                    properties:
+                      next:
+                        type: [string, "null"]
+                      prev:
+                        type: [string, "null"]
+        '404':
+          $ref: "#/components/responses/error"
+  /v1/{service}/user/{creator_id}/post/{post_id}/revisions:
+    get:
+      tags: [Posts]
+      description: Newest first. Returns 404 with body `[]` when there are none.
+      parameters:
+        - $ref: "#/components/parameters/path-service"
+        - $ref: "#/components/parameters/path-creator-id"
+        - $ref: "#/components/parameters/path-post-id"
+      responses:
+        '200':
+          description: Revisions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  allOf:
+                    - $ref: "#/components/schemas/post"
+                    - type: object
+                      properties:
+                        revision_id:
+                          type: integer
+        '404':
+          description: No revisions (body `[]`)
+  /v1/{service}/user/{creator_id}/post/{post_id}/comments:
+    get:
+      tags: [Posts]
+      description: Returns 404 `{"error":"Not found"}` when there are no comments.
+      parameters:
+        - $ref: "#/components/parameters/path-service"
+        - $ref: "#/components/parameters/path-creator-id"
+        - $ref: "#/components/parameters/path-post-id"
+      responses:
+        '200':
+          description: Comments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/comment"
+        '404':
+          $ref: "#/components/responses/error"
+  /v1/search_hash/{hash}:
+    get:
+      tags: [Files]
+      parameters:
+        - name: hash
+          in: path
+          required: true
+          schema:
+            type: string
+            description: SHA-256 of the file
+      responses:
+        '200':
+          description: Posts containing the file
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hash:
+                    type: string
+                  posts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        user:
+                          type: string
+                        service:
+                          type: string
+                        title:
+                          type: string
+                        content:
+                          type: string
+                        published:
+                          type: string
+                        file:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            node:
+                              type: integer
+                            path:
+                              type: string
+                        attachments:
+                          type: array
+                          items:
+                            type: object
+                  discord_posts:
+                    type: [array, "null"]
+components:
+  parameters:
+    path-service:
+      name: service
+      in: path
+      required: true
+      description: Live data only has `patreon` and `fanbox`.
+      schema:
+        $ref: "#/components/schemas/service"
+    path-creator-id:
+      name: creator_id
+      in: path
+      required: true
+      schema:
+        type: string
+    path-post-id:
+      name: post_id
+      in: path
+      required: true
+      schema:
+        type: string
+    query-q:
+      name: q
+      in: query
+      description: Search query. The documented 3 character minimum is not enforced.
+      schema:
+        type: string
+    query-o:
+      name: o
+      in: query
+      description: Offset, a multiple of 50. Otherwise 400.
+      schema:
+        type: integer
+        minimum: 0
+        multipleOf: 50
+  responses:
+    error:
+      description: Error
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+  schemas:
+    service:
+      type: string
+      enum: [patreon, fanbox, fantia, afdian, boosty, gumroad, subscribestar, dlsite, discord, onlyfans, fansly, candfans]
+    datetime:
+      type: string
+      description: ISO 8601 without timezone; microseconds are possible.
+      examples: ["2026-11-23T12:00:27"]
+    file:
+      type: object
+      description: >
+        Newer files have `server` (https://n2.pawchive.pw or n3). URL is
+        `{server}/data{path}?f={name}`; older files use the classic path with no server.
+        Downloads are hotlink-protected (403 without a pawchive.pw Referer).
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+        server:
+          type: string
+    creator-list-item:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        public_id:
+          type: string
+        service:
+          type: string
+        indexed:
+          type: integer
+          description: Unix seconds
+        updated:
+          type: integer
+          description: Unix seconds
+        favorited:
+          type: integer
+        ever_imported:
+          type: boolean
+    creator-profile:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        service:
+          type: string
+        indexed:
+          $ref: "#/components/schemas/datetime"
+        updated:
+          $ref: "#/components/schemas/datetime"
+        public_id:
+          type: [string, "null"]
+        relation_id:
+          type: [integer, "null"]
+        ever_imported:
+          type: boolean
+    post-summary:
+      type: object
+      properties:
+        id:
+          type: string
+        user:
+          type: string
+        service:
+          type: string
+        title:
+          type: string
+        substring:
+          type: string
+        published:
+          $ref: "#/components/schemas/datetime"
+        file:
+          $ref: "#/components/schemas/file"
+        attachments:
+          type: array
+          items:
+            $ref: "#/components/schemas/file"
+        preview_state:
+          type: string
+        has_full:
+          type: boolean
+        origin:
+          type: string
+    post:
+      type: object
+      properties:
+        id:
+          type: string
+        user:
+          type: string
+        service:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+        embed:
+          type: object
+        shared_file:
+          type: boolean
+        added:
+          $ref: "#/components/schemas/datetime"
+        published:
+          $ref: "#/components/schemas/datetime"
+        edited:
+          $ref: "#/components/schemas/datetime"
+        file:
+          $ref: "#/components/schemas/file"
+        attachments:
+          type: array
+          items:
+            $ref: "#/components/schemas/file"
+        poll:
+          type: [object, "null"]
+        captions:
+          type: [object, "null"]
+        tags:
+          type: [string, "null"]
+          description: Postgres array literal, not a JSON array, e.g. `{"Anime Reactions",Steins;Gate}`.
+        origin:
+          type: string
+        preview_state:
+          type: string
+        has_full:
+          type: boolean
+        detail_fetched:
+          type: boolean
+    comment:
+      type: object
+      properties:
+        id:
+          type: string
+        parent_id:
+          type: [string, "null"]
+        commenter:
+          type: string
+        commenter_name:
+          type: string
+        content:
+          type: string
+        published:
+          $ref: "#/components/schemas/datetime"
+        revisions:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              content:
+                type: string
+              added:
+                $ref: "#/components/schemas/datetime"
