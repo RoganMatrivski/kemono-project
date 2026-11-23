@@ -13,6 +13,8 @@ pub enum Error {
     BadRequest(String),
     /// 401: a session cookie is required.
     Unauthorized,
+    /// 429 after all retries; `retry_after` is the server's `Retry-After` in seconds.
+    RateLimited { retry_after: Option<u64> },
     /// Any other non-success status.
     Status(reqwest::StatusCode),
 }
@@ -24,6 +26,10 @@ impl fmt::Display for Error {
             Error::NotFound => write!(f, "not found"),
             Error::BadRequest(m) => write!(f, "bad request: {m}"),
             Error::Unauthorized => write!(f, "unauthorized (login required)"),
+            Error::RateLimited {
+                retry_after: Some(s),
+            } => write!(f, "rate limited, retry after {s}s"),
+            Error::RateLimited { retry_after: None } => write!(f, "rate limited"),
             Error::Status(s) => write!(f, "unexpected status {s}"),
         }
     }
@@ -49,12 +55,14 @@ impl Error {
     pub(crate) async fn check(resp: reqwest::Response) -> Result<reqwest::Response, Error> {
         use reqwest::StatusCode as S;
         let status = resp.status();
+        let retry_after = retry_after_secs(resp.headers());
         if status.is_success() {
             return Ok(resp);
         }
         Err(match status {
             S::NOT_FOUND => Error::NotFound,
             S::UNAUTHORIZED => Error::Unauthorized,
+            S::TOO_MANY_REQUESTS => Error::RateLimited { retry_after },
             S::BAD_REQUEST => {
                 let body = resp.text().await.unwrap_or_default();
                 Error::BadRequest(error_message(&body))
@@ -62,6 +70,16 @@ impl Error {
             s => Error::Status(s),
         })
     }
+}
+
+/// `Retry-After` as seconds (the HTTP-date form is ignored).
+pub(crate) fn retry_after_secs(h: &reqwest::header::HeaderMap) -> Option<u64> {
+    h.get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
 }
 
 fn error_message(body: &str) -> String {

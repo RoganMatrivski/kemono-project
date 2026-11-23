@@ -13,9 +13,11 @@
 //! Account calls need [`PawchiveClient::login`] first and otherwise fail with
 //! [`Error::Unauthorized`].
 
+use std::time::Duration;
+
 use reqwest::{Client, Method, header, redirect};
 
-use crate::client::HttpCore;
+use crate::client::{DEFAULT_TIMEOUT, HttpCore, RetryPolicy};
 use crate::error::Error;
 use crate::types::pawchive::{
     PawchiveComment, PawchiveCreatorListItem, PawchiveCreatorProfile, PawchiveFancard,
@@ -46,12 +48,20 @@ impl PawchiveClient {
             .user_agent("kemono-rs/0.1.0")
             .gzip(true)
             .cookie_store(true)
+            .timeout(DEFAULT_TIMEOUT)
             .redirect(redirect::Policy::none())
             .build()
             .unwrap();
         Self {
             http: HttpCore::from_client(client, base_url),
         }
+    }
+
+    /// Replaces the retry policy (default: 3 attempts, 500 ms doubling backoff; see [`RetryPolicy`]).
+    /// Applies to GETs and the idempotent favorite calls; never to [`login`](Self::login).
+    pub fn with_retry(mut self, policy: RetryPolicy) -> Self {
+        self.http = self.http.with_retry(policy);
+        self
     }
 
     /// Log in through the website form (there is no JSON login). On success the
@@ -97,12 +107,16 @@ impl PawchiveClient {
         self.http.get_json(url, &[("type", "post".into())]).await
     }
 
-    /// `POST /v1/favorites/creator/{service}/{id}`. Idempotent; the ID is not validated by the server.
+    /// `POST /v1/favorites/creator/{service}/{id}`. Idempotent (and retried).
+    ///
+    /// The server accepts any ID, so this first checks that the creator exists
+    /// ([`get_profile`](Self::get_profile)); an unknown one is [`Error::NotFound`] and nothing is changed.
     pub async fn add_favorite_creator(&self, service: &str, creator_id: &str) -> Result<(), Error> {
+        self.get_profile(service, creator_id).await?;
         self.fav_creator(Method::POST, service, creator_id).await
     }
 
-    /// `DELETE /v1/favorites/creator/{service}/{id}`. Idempotent.
+    /// `DELETE /v1/favorites/creator/{service}/{id}`. Idempotent (removing a non-favorite is a no-op), so no existence check.
     pub async fn remove_favorite_creator(
         &self,
         service: &str,
@@ -111,13 +125,17 @@ impl PawchiveClient {
         self.fav_creator(Method::DELETE, service, creator_id).await
     }
 
-    /// `POST /v1/favorites/post/{service}/{creator_id}/{post_id}`. Idempotent.
+    /// `POST /v1/favorites/post/{service}/{creator_id}/{post_id}`. Idempotent (and retried).
+    ///
+    /// Checks that the post exists first ([`get_post`](Self::get_post)); an unknown one is
+    /// [`Error::NotFound`] and nothing is changed.
     pub async fn add_favorite_post(
         &self,
         service: &str,
         creator_id: &str,
         post_id: &str,
     ) -> Result<(), Error> {
+        self.get_post(service, creator_id, post_id).await?;
         self.fav_post(Method::POST, service, creator_id, post_id)
             .await
     }
@@ -252,8 +270,10 @@ impl PawchiveClient {
 
     /// Every creator on the site in one response (~16 MB). `GET /v1/creators`
     pub async fn get_creators(&self) -> Result<Vec<PawchiveCreatorListItem>, Error> {
+        // ~16 MB: allow a slower download than the default timeout.
+        let url = format!("{}/v1/creators", self.http.base_url());
         self.http
-            .get_json(format!("{}/v1/creators", self.http.base_url()), &[])
+            .get_json_timeout(url, &[], Some(Duration::from_secs(120)))
             .await
     }
 
@@ -481,6 +501,16 @@ mod live {
         c.login(&u, &p).await.unwrap();
         let _ = c.has_pending_dms().await.unwrap();
         let (svc, id) = ("patreon", "110390090");
+        // unknown targets are rejected before anything is mutated
+        assert!(matches!(
+            c.add_favorite_creator(svc, "0").await,
+            Err(Error::NotFound)
+        ));
+        assert!(matches!(
+            c.add_favorite_post(svc, id, "0").await,
+            Err(Error::NotFound)
+        ));
+        assert!(c.favorite_creators().await.unwrap().is_empty());
         c.add_favorite_creator(svc, id).await.unwrap();
         let got = c.favorite_creators().await;
         c.remove_favorite_creator(svc, id).await.unwrap(); // clean up before asserting
