@@ -1,4 +1,17 @@
-//! Client for Pawchive (https://pawchive.pw), a Kemono fork.
+//! Client for Pawchive (<https://pawchive.pw>), a Kemono fork.
+//!
+//! ```no_run
+//! # async fn demo() -> Result<(), kemono_core::error::Error> {
+//! use kemono_core::pawchive::PawchiveClient;
+//! let c = PawchiveClient::default();
+//! let post = c.get_post("patreon", "110390090", "176121337").await?;
+//! println!("{} {:?}", post.title, post.parsed_tags());
+//! # Ok(()) }
+//! ```
+//!
+//! Endpoints that answer 404 for "none" (comments, revisions) return an empty `Vec`.
+//! Account calls need [`PawchiveClient::login`] first and otherwise fail with
+//! [`Error::Unauthorized`].
 
 use reqwest::{Client, Method, header, redirect};
 
@@ -25,7 +38,7 @@ impl Default for PawchiveClient {
 }
 
 impl PawchiveClient {
-    /// `base_url` is e.g. "https://pawchive.pw/api" (no trailing slash).
+    /// `base_url` is e.g. `https://pawchive.pw/api` (no trailing slash).
     ///
     /// The client keeps a cookie jar (for [`login`](Self::login)) and does not follow redirects.
     pub fn new(base_url: &str) -> Self {

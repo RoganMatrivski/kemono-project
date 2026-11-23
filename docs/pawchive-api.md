@@ -49,9 +49,9 @@ Legend: **S** = in the swagger spec, **B** = called by the frontend bundle, **L*
 | GET | `/creators/bans` | B L | Not in the spec. Returned `404 {"error":"not found"}` (feature disabled or empty). |
 | GET | `/lookup/cache/{id}?service={service}` | B L | Not in the spec. The frontend calls this `bannedArtist`. Returns `404 {"error":"not found"}` for a creator that isn't banned. |
 | GET | `/{service}/user/{creator_id}/profile` | S L | See below. |
-| GET | `/{service}/user/{creator_id}/links` | S L | `[]` when there are no linked accounts. |
+| GET | `/{service}/user/{creator_id}/links` | S L | `[]` when there are no linked accounts. Items are **profile-shaped** (see `/profile`) plus `kemono_favorited` and `reimport_pending`; `relation_id` was seen non-null (e.g. `622`). |
 | GET | `/{service}/user/{creator_id}/tags` | S L | `[{"tag":"Steins;Gate","post_count":3}, ...]` |
-| GET | `/{service}/user/{creator_id}/announcements` | S L | `[]` when there are none. |
+| GET | `/{service}/user/{creator_id}/announcements` | S L | `[]` when there are none. Item shape still unknown: every creator sampled had none. |
 | GET | `/{service}/user/{creator_id}/fancards` | S L | `fanbox` only. Other services return `200 []`. See below. |
 
 `/creators` item (live):
@@ -102,7 +102,7 @@ Here the timestamps are **ISO strings with no timezone**.
   "preview_state": "scraped", "has_full": true, "origin": "import"
 }
 ```
-This shape has `substring` instead of `content`. It does not have `added`, `edited`, `embed` or `shared_file`.
+`file` and `attachments` entries here can carry `"preview_only": true` and have **no `server`** (the full file is not archived), so no download URL can be built for them. This shape has `substring` instead of `content`. It does not have `added`, `edited`, `embed` or `shared_file`.
 
 **Full shape** (single post, and a creator's post list), live:
 ```json
@@ -183,6 +183,8 @@ curl -c jar.txt -b jar.txt \
   --data-urlencode "location=/artists" \
   https://pawchive.pw/account/login
 # → 302 to /artists?logged_in=yes&role=consumer, and sets an HttpOnly cookie named `session`
+# A wrong password also answers 302 (and sets a flash `session` cookie), but the Location is
+# /account/login?location=/artists. Tell success from failure by the Location, not the cookie.
 ```
 
 Send the `session` cookie with every account request. A new account has role `consumer`.
@@ -212,7 +214,7 @@ Favorite-creator item (live): the `/profile` shape plus four extra fields.
  "faved_seq": 34694823, "last_imported": "2026-11-23T13:00:00"}
 ```
 
-Favorite-post item (live): the full post shape, including `next`/`prev`, plus `faved_seq`. Its `file` uses `node` + the classic path (like `/search_hash`), not `server`.
+Favorite-post item (live): the full post shape, including `next`/`prev`, plus `faved_seq`. Its `file` uses `node` + the classic path (like `/search_hash`), not `server`; the host is `https://n{node}.pawchive.pw`.
 
 ### Importer
 
@@ -290,6 +292,10 @@ These are called from `global.js` and are probably moderator/owner actions. They
 11. **`tags` is a Postgres array literal string** like `"{a,\"b c\"}"`, not a JSON array.
 12. **The `tag`/`hide`/`only` filters don't work on `/api/v1/posts` or `/creators`.** `tag` only works on a creator's post list.
 13. **DMs, community chats, popular, random and recommended have no JSON API.** They are HTML only.
+
+## Tooling notes
+
+- Python's `urllib` (default User-Agent) gets **403 from Cloudflare**; `curl` and `reqwest` are fine.
 
 ## Not tested
 

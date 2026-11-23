@@ -1,4 +1,7 @@
 //! HTTP plumbing shared by the fork clients (currently only Pawchive).
+//!
+//! [`HttpCore`] wraps a `reqwest::Client` and a base URL and maps HTTP statuses to
+//! [`Error`] so each fork client only has to build paths and types.
 
 use reqwest::Client;
 use serde::de::DeserializeOwned;
@@ -13,7 +16,7 @@ pub struct HttpCore {
 }
 
 impl HttpCore {
-    /// `base_url` like "https://pawchive.pw/api"; a trailing slash is trimmed.
+    /// `base_url` like `https://pawchive.pw/api`; a trailing slash is trimmed.
     pub fn new(base_url: &str) -> Self {
         let client = Client::builder()
             .user_agent("kemono-rs/0.1.0")

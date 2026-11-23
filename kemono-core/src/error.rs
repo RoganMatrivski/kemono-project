@@ -1,3 +1,5 @@
+//! Error type for the fork clients. Server messages come from `{"error": "..."}` bodies.
+
 use std::fmt;
 
 /// Errors from fork clients (currently Pawchive).
