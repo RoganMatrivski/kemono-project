@@ -4,10 +4,11 @@ Rust crate `kemono-core`: types and HTTP clients for Kemono and its forks.
 
 | Module | What | Source of truth |
 |---|---|---|
-| `kemono` | `KemonoClient` for kemono.su / coomer.su | generated from `schema/kemono.yaml` (**do not edit by hand**) |
+| `kemono` | `KemonoClient` for kemono.su / coomer.su | hand-maintained against `schema/kemono.yaml` |
 | `pawchive` | `PawchiveClient` for <https://pawchive.pw> | hand-written; `schema/pawchive.yaml`, `docs/pawchive-api.md` |
 | `client` | `HttpCore`: client + base URL + status mapping, shared by fork clients | |
-| `error` | `Error { Http, NotFound, BadRequest, Unauthorized, Status }` | |
+| `handles` | `Creator` / `PostRef` / `PostsQuery` objects over both clients | |
+| `error` | `Error { Http, NotFound, BadRequest, Unauthorized, RateLimited, Status }` | |
 
 ## Quick start
 
@@ -26,6 +27,21 @@ async fn main() -> Result<(), kemono_core::error::Error> {
     Ok(())
 }
 ```
+
+The same through handles, which bundle `service` + `id` with the client:
+
+```rust
+let creator = c.creator("patreon", "110390090");      // no request yet
+let tags = creator.tags().await?;
+let mut posts = creator.posts().tag("Steins;Gate").max_pages(10);
+while let Some(p) = posts.next().await? { println!("{}", p.title); } // lazy, 50 per request
+let all = creator.posts().collect().await?;            // or everything at once
+let comments = creator.post("176121337").comments().await?;
+let handle = profile.bind(&c);                         // from any fetched profile or post
+```
+
+`KemonoClient::creator(..)` offers the same for posts (Kemono has no profile/tags endpoint in the schema).
+The `get_*` client methods remain as the low-level layer.
 
 Run the bundled example: `cargo run -p kemono-core --example pawchive`.
 
@@ -68,5 +84,3 @@ cargo test -- --ignored
 # account tests also need a disposable account:
 PAWCHIVE_USER=... PAWCHIVE_PASS=... cargo test -- --ignored live_account
 ```
-
-`cargo doc --no-deps` currently reports two warnings that come from `src/kemono.rs` (generated); they go away when the generator quotes the URLs.

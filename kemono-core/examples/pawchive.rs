@@ -3,18 +3,23 @@ use kemono_core::pawchive::PawchiveClient;
 
 #[tokio::main]
 async fn main() -> Result<(), kemono_core::error::Error> {
-    let c = PawchiveClient::default();
+    let creator = PawchiveClient::default().creator("patreon", "110390090");
 
-    let profile = c.get_profile("patreon", "110390090").await?;
+    let profile = creator.profile().await?;
     println!("{} (updated {})", profile.name, profile.updated);
+    println!("{} tags", creator.tags().await?.len());
 
-    let posts = c
-        .get_user_posts("patreon", "110390090", None, Some(0), None)
-        .await?;
-    println!("{} posts on the first page", posts.len());
+    let mut posts = creator.posts().max_pages(1);
+    let mut n = 0;
+    let mut first = None;
+    while let Some(p) = posts.next().await? {
+        n += 1;
+        first.get_or_insert(p);
+    }
+    println!("{n} posts on the first page");
 
-    if let Some(first) = posts.first() {
-        let post = c.get_post("patreon", &first.user, &first.id).await?;
+    if let Some(first) = first {
+        let post = creator.post(&first.id).fetch().await?;
         println!(
             "{:?} tags={:?} file={:?}",
             post.title,

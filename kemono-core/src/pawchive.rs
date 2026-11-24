@@ -26,9 +26,9 @@ use crate::types::pawchive::{
 };
 
 /// Pawchive serves 50 results per page; `o` must be a multiple of this.
-pub const PAGE_SIZE: u32 = 50;
+pub use crate::handles::paging::PAGE_SIZE;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PawchiveClient {
     http: HttpCore,
 }
@@ -217,20 +217,17 @@ impl PawchiveClient {
         q: Option<&str>,
         max_pages: Option<u32>,
     ) -> Result<Vec<PawchivePost>, Error> {
-        let mut all = Vec::new();
-        let mut page = 0u32;
-        while max_pages.is_none_or(|m| page < m) {
-            let batch = self
-                .get_user_posts(service, creator_id, tag, Some(page * PAGE_SIZE), q)
-                .await?;
-            let last = is_last_page(batch.len());
-            all.extend(batch);
-            if last {
-                break;
-            }
-            page += 1;
+        let mut query = self.creator(service, creator_id).posts();
+        if let Some(t) = tag {
+            query = query.tag(t);
         }
-        Ok(all)
+        if let Some(q) = q {
+            query = query.query(q);
+        }
+        if let Some(m) = max_pages {
+            query = query.max_pages(m);
+        }
+        query.collect().await
     }
 
     /// `GET /v1/{service}/user/{creator_id}/post/{post_id}`
@@ -380,27 +377,10 @@ impl PawchiveClient {
     }
 }
 
-/// A page with fewer than [`PAGE_SIZE`] items is the final one.
-fn is_last_page(len: usize) -> bool {
-    len < PAGE_SIZE as usize
-}
-
 fn empty_on_404<T>(r: Result<Vec<T>, Error>) -> Result<Vec<T>, Error> {
     match r {
         Err(Error::NotFound) => Ok(Vec::new()),
         other => other,
-    }
-}
-
-#[cfg(test)]
-mod unit {
-    use super::*;
-
-    #[test]
-    fn last_page_rule() {
-        assert!(is_last_page(0));
-        assert!(is_last_page(49));
-        assert!(!is_last_page(50));
     }
 }
 
@@ -424,6 +404,19 @@ mod live {
             .await
             .unwrap();
         assert_eq!(p.id, "176121337");
+    }
+
+    #[tokio::test]
+    #[ignore = "hits pawchive.pw"]
+    async fn live_handles() {
+        let creator = PawchiveClient::default().creator("patreon", "110390090");
+        assert_eq!(creator.profile().await.unwrap().id, "110390090");
+        assert!(!creator.tags().await.unwrap().is_empty());
+        let mut posts = creator.posts().max_pages(1);
+        let first = posts.next().await.unwrap().unwrap();
+        assert_eq!(first.user, "110390090");
+        assert_eq!(creator.posts().page(0).await.unwrap()[0].id, first.id);
+        assert_eq!(creator.post(&first.id).fetch().await.unwrap().id, first.id);
     }
 
     #[tokio::test]
