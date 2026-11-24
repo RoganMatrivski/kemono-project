@@ -1,6 +1,7 @@
 //! Handles for [`PawchiveClient`]: [`Creator`], [`PostRef`] and [`PostsQuery`].
 //!
 //! ```no_run
+//! # #[cfg(feature = "reqwest")]
 //! # async fn demo() -> Result<(), kemono_core::error::Error> {
 //! use kemono_core::pawchive::PawchiveClient;
 //! let creator = PawchiveClient::default().creator("patreon", "110390090");

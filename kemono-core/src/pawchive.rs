@@ -1,6 +1,7 @@
 //! Client for Pawchive (<https://pawchive.pw>), a Kemono fork.
 //!
 //! ```no_run
+//! # #[cfg(feature = "reqwest")]
 //! # async fn demo() -> Result<(), kemono_core::error::Error> {
 //! use kemono_core::pawchive::PawchiveClient;
 //! let c = PawchiveClient::default();
@@ -15,10 +16,11 @@
 
 use std::time::Duration;
 
-use reqwest::{Client, Method, header, redirect};
+use std::sync::Arc;
 
-use crate::client::{DEFAULT_TIMEOUT, HttpCore, RetryPolicy};
+use crate::client::{HttpCore, RetryPolicy};
 use crate::error::Error;
+use crate::transport::{Method, Transport};
 use crate::types::pawchive::{
     PawchiveAnnouncement, PawchiveComment, PawchiveCreatorListItem, PawchiveCreatorProfile,
     PawchiveFancard, PawchiveFavoriteCreator, PawchiveFavoritePost, PawchiveHashSearch,
@@ -33,6 +35,7 @@ pub struct PawchiveClient {
     http: HttpCore,
 }
 
+#[cfg(feature = "reqwest")]
 impl Default for PawchiveClient {
     fn default() -> Self {
         Self::new("https://pawchive.pw/api")
@@ -42,18 +45,20 @@ impl Default for PawchiveClient {
 impl PawchiveClient {
     /// `base_url` is e.g. `https://pawchive.pw/api` (no trailing slash).
     ///
-    /// The client keeps a cookie jar (for [`login`](Self::login)) and does not follow redirects.
+    /// Uses [`ReqwestTransport`](crate::transport::ReqwestTransport) (feature `reqwest`).
+    /// For wasm or another HTTP stack use [`with_transport`](Self::with_transport).
+    #[cfg(feature = "reqwest")]
     pub fn new(base_url: &str) -> Self {
-        let client = Client::builder()
-            .user_agent("kemono-rs/0.1.0")
-            .gzip(true)
-            .cookie_store(true)
-            .timeout(DEFAULT_TIMEOUT)
-            .redirect(redirect::Policy::none())
-            .build()
-            .unwrap();
+        Self::with_transport(
+            base_url,
+            Arc::new(crate::transport::ReqwestTransport::new()),
+        )
+    }
+
+    /// A client that sends its requests through `transport`.
+    pub fn with_transport(base_url: &str, transport: Arc<dyn Transport>) -> Self {
         Self {
-            http: HttpCore::from_client(client, base_url),
+            http: HttpCore::new(base_url, transport),
         }
     }
 
@@ -64,34 +69,51 @@ impl PawchiveClient {
         self
     }
 
+    /// Restores a session returned by an earlier [`login`](Self::login).
+    pub fn with_session(self, session: impl Into<String>) -> Self {
+        self.http.set_session(Some(session.into()));
+        self
+    }
+
+    /// The current `session` cookie value, if logged in. Store it to skip logging in next time.
+    pub fn session(&self) -> Option<String> {
+        self.http.session()
+    }
+
     /// Log in through the website form (there is no JSON login). On success the
-    /// `session` cookie is kept for later account calls. A rejected login is
-    /// [`Error::Unauthorized`].
-    pub async fn login(&self, username: &str, password: &str) -> Result<(), Error> {
+    /// `session` cookie is kept for later account calls and also returned, so it can
+    /// be persisted and restored with [`with_session`](Self::with_session). A rejected
+    /// login is [`Error::Unauthorized`].
+    pub async fn login(&self, username: &str, password: &str) -> Result<String, Error> {
         let root = self.http.base_url().trim_end_matches("/api");
         let resp = self
             .http
-            .client()
-            .post(format!("{root}/account/login"))
-            .form(&[
-                ("username", username),
-                ("password", password),
-                ("location", "/artists"),
-            ])
-            .send()
+            .post_form(
+                format!("{root}/account/login"),
+                &[
+                    ("username", username),
+                    ("password", password),
+                    ("location", "/artists"),
+                ],
+            )
             .await?;
-        let location = resp
-            .headers()
-            .get(header::LOCATION)
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
+        let location = resp.header("location").unwrap_or("");
+        let redirect = (300..400).contains(&resp.status);
         // Success redirects to /artists?logged_in=yes; failure back to /account/login.
-        if resp.status().is_redirection() && !location.starts_with("/account/login") {
-            Ok(())
-        } else if resp.status().is_redirection() {
+        if redirect && !location.starts_with("/account/login") {
+            let session = resp
+                .headers_all("set-cookie")
+                .filter_map(|c| c.split(';').next()?.trim().strip_prefix("session="))
+                .find(|v| !v.is_empty())
+                .map(str::to_owned);
+            // A success without a session cookie is of no use to us.
+            let session = session.ok_or(Error::Unauthorized)?;
+            self.http.set_session(Some(session.clone()));
+            Ok(session)
+        } else if redirect {
             Err(Error::Unauthorized)
         } else {
-            Error::check(resp).await.and(Err(Error::Unauthorized))
+            Error::check(resp).and(Err(Error::Unauthorized))
         }
     }
 
@@ -113,7 +135,7 @@ impl PawchiveClient {
     /// ([`get_profile`](Self::get_profile)); an unknown one is [`Error::NotFound`] and nothing is changed.
     pub async fn add_favorite_creator(&self, service: &str, creator_id: &str) -> Result<(), Error> {
         self.get_profile(service, creator_id).await?;
-        self.fav_creator(Method::POST, service, creator_id).await
+        self.fav_creator(Method::Post, service, creator_id).await
     }
 
     /// `DELETE /v1/favorites/creator/{service}/{id}`. Idempotent (removing a non-favorite is a no-op), so no existence check.
@@ -122,7 +144,7 @@ impl PawchiveClient {
         service: &str,
         creator_id: &str,
     ) -> Result<(), Error> {
-        self.fav_creator(Method::DELETE, service, creator_id).await
+        self.fav_creator(Method::Delete, service, creator_id).await
     }
 
     /// `POST /v1/favorites/post/{service}/{creator_id}/{post_id}`. Idempotent (and retried).
@@ -136,7 +158,7 @@ impl PawchiveClient {
         post_id: &str,
     ) -> Result<(), Error> {
         self.get_post(service, creator_id, post_id).await?;
-        self.fav_post(Method::POST, service, creator_id, post_id)
+        self.fav_post(Method::Post, service, creator_id, post_id)
             .await
     }
 
@@ -147,7 +169,7 @@ impl PawchiveClient {
         creator_id: &str,
         post_id: &str,
     ) -> Result<(), Error> {
-        self.fav_post(Method::DELETE, service, creator_id, post_id)
+        self.fav_post(Method::Delete, service, creator_id, post_id)
             .await
     }
 
@@ -385,6 +407,147 @@ fn empty_on_404<T>(r: Result<Vec<T>, Error>) -> Result<Vec<T>, Error> {
 }
 
 #[cfg(test)]
+mod mocked {
+    use super::*;
+    use crate::transport::mock::{MockTransport, resp, resp_h};
+
+    fn client(t: &Arc<MockTransport>) -> PawchiveClient {
+        PawchiveClient::with_transport("http://x/api", t.clone())
+    }
+
+    #[tokio::test]
+    async fn login_captures_session_and_sends_it_afterwards() {
+        let t = MockTransport::new(|r, _| {
+            Ok(if r.url.ends_with("/account/login") {
+                resp_h(
+                    303,
+                    &[
+                        ("Location", "/artists?logged_in=yes"),
+                        ("Set-Cookie", "other=1; Path=/"),
+                        ("Set-Cookie", "session=tok123; HttpOnly; Path=/"),
+                    ],
+                    "",
+                )
+            } else {
+                resp(200, "true")
+            })
+        });
+        let c = client(&t);
+        assert_eq!(c.login("a b", "p&w").await.unwrap(), "tok123");
+        assert_eq!(c.session().as_deref(), Some("tok123"));
+        assert!(c.has_pending_dms().await.unwrap());
+
+        let reqs = t.requests();
+        assert_eq!(reqs[0].url, "http://x/account/login");
+        assert_eq!(
+            String::from_utf8(reqs[0].body.clone().unwrap()).unwrap(),
+            "username=a+b&password=p%26w&location=%2Fartists"
+        );
+        assert!(
+            reqs[1]
+                .headers
+                .iter()
+                .any(|(k, v)| k == "Cookie" && v == "session=tok123")
+        );
+    }
+
+    #[tokio::test]
+    async fn rejected_login_is_unauthorized_and_stores_nothing() {
+        let t =
+            MockTransport::scripted(vec![Ok(resp_h(303, &[("Location", "/account/login")], ""))]);
+        let c = client(&t);
+        assert!(matches!(c.login("a", "b").await, Err(Error::Unauthorized)));
+        assert_eq!(c.session(), None);
+
+        let t = MockTransport::scripted(vec![Ok(resp(200, "login page"))]);
+        assert!(matches!(
+            client(&t).login("a", "b").await,
+            Err(Error::Unauthorized)
+        ));
+    }
+
+    #[tokio::test]
+    async fn with_session_is_shared_by_clones() {
+        let t = MockTransport::scripted(vec![Ok(resp(200, "false"))]);
+        let c = client(&t).with_session("s1");
+        let _ = c.clone().has_pending_dms().await.unwrap();
+        assert!(
+            t.requests()[0]
+                .headers
+                .iter()
+                .any(|(k, v)| k == "Cookie" && v == "session=s1")
+        );
+    }
+
+    /// Serves `pages` posts-pages of the given sizes, keyed by the `o` query parameter.
+    fn posts_transport(sizes: &'static [usize]) -> Arc<MockTransport> {
+        MockTransport::new(move |r, _| {
+            let o: usize = r
+                .url
+                .split("o=")
+                .nth(1)
+                .map(|s| s.split('&').next().unwrap().parse().unwrap())
+                .unwrap_or(0);
+            let n = sizes.get(o / 50).copied().unwrap_or(0);
+            let posts: Vec<_> = (0..n)
+                .map(|i| serde_json::json!({"id": format!("{}", o + i), "user": "u", "service": "s"}))
+                .collect();
+            Ok(resp(200, &serde_json::to_string(&posts).unwrap()))
+        })
+    }
+
+    #[tokio::test]
+    async fn handle_posts_walk_pages_in_order_and_stop_on_short_page() {
+        let t = posts_transport(&[50, 50, 3]);
+        let creator = client(&t).creator("s", "u");
+        let all = creator
+            .posts()
+            .tag("a b")
+            .query("q")
+            .collect()
+            .await
+            .unwrap();
+        assert_eq!(all.len(), 103);
+        assert_eq!(all[50].id, "50");
+        let reqs = t.requests();
+        assert_eq!(reqs.len(), 3);
+        assert!(
+            reqs[2]
+                .url
+                .starts_with("http://x/api/v1/s/user/u/posts?tag=a+b&o=100&q=q"),
+            "{}",
+            reqs[2].url
+        );
+    }
+
+    #[tokio::test]
+    async fn handle_posts_max_pages_and_single_page() {
+        let t = posts_transport(&[50, 50, 50]);
+        let creator = client(&t).creator("s", "u");
+        assert_eq!(
+            creator.posts().max_pages(2).collect().await.unwrap().len(),
+            100
+        );
+        assert_eq!(t.requests().len(), 2);
+        assert_eq!(creator.posts().page(1).await.unwrap()[0].id, "50");
+        let mut q = creator.posts().max_pages(1);
+        assert_eq!(q.next().await.unwrap().unwrap().id, "0");
+    }
+
+    #[tokio::test]
+    async fn comments_404_is_empty_via_handle() {
+        let t = MockTransport::scripted(vec![Ok(resp(404, ""))]);
+        let post = client(&t).creator("s", "u").post("1");
+        assert!(post.comments().await.unwrap().is_empty());
+        assert!(post.revisions().await.unwrap().is_empty());
+        assert_eq!(
+            t.requests()[0].url,
+            "http://x/api/v1/s/user/u/post/1/comments"
+        );
+    }
+}
+
+#[cfg(all(test, feature = "reqwest"))]
 mod live {
     use super::*;
 

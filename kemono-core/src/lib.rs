@@ -3,10 +3,12 @@
 //! - [`kemono`]: client for kemono.su / coomer.su (see `schema/kemono.yaml`)
 //! - [`pawchive`]: hand-written client for Pawchive (see `docs/pawchive-api.md`)
 //! - [`handles`]: `client.creator(..).posts()`-style API over both clients
+//! - [`transport`]: the `Transport` trait the clients send through (reqwest by default, or your own for wasm)
 
 pub mod client;
 pub mod error;
 pub mod handles;
 pub mod kemono;
 pub mod pawchive;
+pub mod transport;
 pub mod types;

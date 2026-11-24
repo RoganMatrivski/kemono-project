@@ -4,6 +4,7 @@
 //! paging) and single posts. Profiles and tags have no endpoint in `schema/kemono.yaml`.
 //!
 //! ```no_run
+//! # #[cfg(feature = "reqwest")]
 //! # async fn demo() -> Result<(), kemono_core::error::Error> {
 //! use kemono_core::kemono::KemonoClient;
 //! let creator = KemonoClient::new("https://kemono.su/api").creator("patreon", "110390090");

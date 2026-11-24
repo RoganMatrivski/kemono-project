@@ -3,9 +3,22 @@ name = "kemono-core"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["reqwest"]
+# Ready-made `Transport` on reqwest + tokio (native). Turn off for wasm / custom transports.
+reqwest = ["dep:reqwest", "dep:tokio"]
+
 [dependencies]
 jiff = { version = "0.2", features = ["serde"] }
-reqwest = { version = "0.13", features = ["gzip", "json", "query", "cookies", "form"] }
+reqwest = { version = "0.13", features = ["gzip"], optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+tokio = { version = "1", features = ["time"], optional = true }
+url = "2"
+
+[dev-dependencies]
 tokio = { version = "1", features = ["full"] }
+
+[[example]]
+name = "pawchive"
+required-features = ["reqwest"]

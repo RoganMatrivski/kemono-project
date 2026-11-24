@@ -1,7 +1,7 @@
 use jiff::civil::DateTime;
-use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use url::Url;
 
 /// A file or attachment. Newer files carry `server`; older ones use the
 /// classic path with no server (favorite posts use `node` instead).

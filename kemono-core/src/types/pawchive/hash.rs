@@ -1,6 +1,6 @@
 use jiff::civil::DateTime;
-use reqwest::Url;
 use serde::{Deserialize, Serialize};
+use url::Url;
 
 /// `GET /v1/search_hash/{sha256}`. `discord_posts` is null, not `[]`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

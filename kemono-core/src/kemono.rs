@@ -3,10 +3,11 @@
 //! The low-level methods here take `(service, creator_id)` strings; for an
 //! object-style API use [`KemonoClient::creator`] (see [`crate::handles::kemono`]).
 
-use reqwest::Client;
+use std::sync::Arc;
 
-use crate::client::{DEFAULT_TIMEOUT, HttpCore, RetryPolicy};
+use crate::client::{HttpCore, RetryPolicy};
 use crate::error::Error;
+use crate::transport::Transport;
 use crate::types::post::{PostRoot, PostSummary};
 
 #[derive(Debug, Clone)]
@@ -15,20 +16,20 @@ pub struct KemonoClient {
 }
 
 impl KemonoClient {
-    /// Creates a new client.
+    /// Creates a new client on [`ReqwestTransport`](crate::transport::ReqwestTransport) (feature `reqwest`).
     /// The `base_url` can be `https://kemono.su/api` or `https://coomer.su/api`.
+    #[cfg(feature = "reqwest")]
     pub fn new(base_url: &str) -> Self {
-        let client = Client::builder()
-            .user_agent("kemono-rs/0.1.0")
-            .default_headers(
-                std::iter::once((reqwest::header::ACCEPT, "text/css".parse().unwrap())).collect(),
-            )
-            .gzip(true)
-            .timeout(DEFAULT_TIMEOUT)
-            .build()
-            .unwrap();
+        Self::with_transport(
+            base_url,
+            Arc::new(crate::transport::ReqwestTransport::new()),
+        )
+    }
+
+    /// A client that sends its requests through `transport`.
+    pub fn with_transport(base_url: &str, transport: Arc<dyn Transport>) -> Self {
         Self {
-            http: HttpCore::from_client(client, base_url),
+            http: HttpCore::new(base_url, transport).with_header("Accept", "text/css"),
         }
     }
 
