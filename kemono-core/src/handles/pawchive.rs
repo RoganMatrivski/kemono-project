@@ -18,8 +18,9 @@ use super::paging::Cursor;
 use crate::error::Error;
 use crate::pawchive::PawchiveClient;
 use crate::types::pawchive::{
-    PawchiveAnnouncement, PawchiveComment, PawchiveCreatorProfile, PawchiveFancard, PawchivePost,
-    PawchiveRevision, PawchiveTagCount,
+    PawchiveAnnouncement, PawchiveComment, PawchiveCreatorListItem, PawchiveCreatorProfile,
+    PawchiveFancard, PawchiveFavoriteCreator, PawchiveFavoritePost, PawchiveHashPost, PawchivePost,
+    PawchivePostSummary, PawchiveRevision, PawchiveTagCount,
 };
 
 impl PawchiveClient {
@@ -30,6 +31,84 @@ impl PawchiveClient {
             service: service.to_string(),
             id: creator_id.to_string(),
         }
+    }
+}
+
+impl PawchiveClient {
+    /// Your favorite creators as handles (needs login). For `faved_seq` and
+    /// `last_imported` use [`get_favorite_creators`](Self::get_favorite_creators).
+    pub async fn favorite_creators(&self) -> Result<Vec<Creator>, Error> {
+        let favs = self.get_favorite_creators().await?;
+        Ok(favs.iter().map(|f| f.bind(self)).collect())
+    }
+
+    /// Your favorite posts as handles (needs login). For `faved_seq` and the post
+    /// data use [`get_favorite_posts`](Self::get_favorite_posts).
+    pub async fn favorite_posts(&self) -> Result<Vec<PostRef>, Error> {
+        let favs = self.get_favorite_posts().await?;
+        Ok(favs.iter().map(|f| f.bind(self)).collect())
+    }
+}
+
+macro_rules! bind_creator {
+    ($($t:ty => $svc:ident, $id:ident;)*) => {$(
+        impl $t {
+            /// `(service, id)`, the creator's identity.
+            pub fn key(&self) -> (&str, &str) {
+                (&self.$svc, &self.$id)
+            }
+
+            /// Turns this into a [`Creator`] handle on `client`.
+            pub fn bind(&self, client: &PawchiveClient) -> Creator {
+                client.creator(&self.$svc, &self.$id)
+            }
+        }
+    )*};
+}
+
+macro_rules! bind_post {
+    ($($t:ty => $($path:ident).+;)*) => {$(
+        impl $t {
+            /// A [`PostRef`] handle (post and creator) on `client`.
+            pub fn bind(&self, client: &PawchiveClient) -> PostRef {
+                let p = &self.$($path).+;
+                client.creator(&p.service, &p.user).post(&p.id)
+            }
+        }
+    )*};
+}
+
+bind_creator! {
+    PawchiveCreatorListItem => service, id;
+}
+bind_post! {
+    PawchiveFavoritePost => post;
+    PawchiveRevision => post;
+}
+
+impl PawchiveFavoriteCreator {
+    /// `(service, id)`, the creator's identity.
+    pub fn key(&self) -> (&str, &str) {
+        self.profile.key()
+    }
+
+    /// Turns this into a [`Creator`] handle on `client`.
+    pub fn bind(&self, client: &PawchiveClient) -> Creator {
+        self.profile.bind(client)
+    }
+}
+
+impl PawchivePostSummary {
+    /// A [`PostRef`] handle on `client`.
+    pub fn bind(&self, client: &PawchiveClient) -> PostRef {
+        client.creator(&self.service, &self.user).post(&self.id)
+    }
+}
+
+impl PawchiveHashPost {
+    /// A [`PostRef`] handle on `client`.
+    pub fn bind(&self, client: &PawchiveClient) -> PostRef {
+        client.creator(&self.service, &self.user).post(&self.id)
     }
 }
 

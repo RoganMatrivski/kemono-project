@@ -18,7 +18,7 @@
 use super::paging::{Cursor, PAGE_SIZE};
 use crate::error::Error;
 use crate::kemono::KemonoClient;
-use crate::types::post::{PostRoot, PostSummary};
+use crate::types::post::{Post, PostRoot, PostSummary};
 
 impl KemonoClient {
     /// A handle for one creator. No request is made.
@@ -32,6 +32,13 @@ impl KemonoClient {
 }
 
 impl PostSummary {
+    /// A handle on this post (and its creator) on `client`.
+    pub fn bind(&self, client: &KemonoClient) -> PostRef {
+        client.creator(&self.service, &self.user).post(&self.id)
+    }
+}
+
+impl Post {
     /// A handle on this post (and its creator) on `client`.
     pub fn bind(&self, client: &KemonoClient) -> PostRef {
         client.creator(&self.service, &self.user).post(&self.id)

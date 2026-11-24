@@ -118,13 +118,13 @@ impl PawchiveClient {
     }
 
     /// `GET /v1/account/favorites?type=artist` (needs login; else [`Error::Unauthorized`]).
-    pub async fn favorite_creators(&self) -> Result<Vec<PawchiveFavoriteCreator>, Error> {
+    pub async fn get_favorite_creators(&self) -> Result<Vec<PawchiveFavoriteCreator>, Error> {
         let url = format!("{}/v1/account/favorites", self.http.base_url());
         self.http.get_json(url, &[("type", "artist".into())]).await
     }
 
     /// `GET /v1/account/favorites?type=post` (needs login).
-    pub async fn favorite_posts(&self) -> Result<Vec<PawchiveFavoritePost>, Error> {
+    pub async fn get_favorite_posts(&self) -> Result<Vec<PawchiveFavoritePost>, Error> {
         let url = format!("{}/v1/account/favorites", self.http.base_url());
         self.http.get_json(url, &[("type", "post".into())]).await
     }
@@ -479,6 +479,30 @@ mod mocked {
         );
     }
 
+    #[tokio::test]
+    async fn favorites_are_handles_and_raw_data_stays_available() {
+        let t = MockTransport::new(|r, _| {
+            Ok(resp(
+                200,
+                if r.url.contains("type=artist") {
+                    r#"[{"id":"1","name":"n","service":"fanbox","indexed":"2024-01-01T00:00:00","updated":"2024-01-01T00:00:00","faved_seq":7}]"#
+                } else {
+                    r#"[{"id":"p","user":"1","service":"fanbox","faved_seq":3}]"#
+                },
+            ))
+        });
+        let c = client(&t);
+        let creators = c.favorite_creators().await.unwrap();
+        assert_eq!((creators[0].service(), creators[0].id()), ("fanbox", "1"));
+        let posts = c.favorite_posts().await.unwrap();
+        assert_eq!(posts[0].id(), "p");
+        assert_eq!(posts[0].creator().id(), "1");
+        let raw = c.get_favorite_creators().await.unwrap();
+        assert_eq!(raw[0].faved_seq, Some(7));
+        assert_eq!(raw[0].key(), ("fanbox", "1"));
+        assert_eq!(raw[0].bind(&c).id(), "1");
+    }
+
     /// Serves `pages` posts-pages of the given sizes, keyed by the `o` query parameter.
     fn posts_transport(sizes: &'static [usize]) -> Arc<MockTransport> {
         MockTransport::new(move |r, _| {
@@ -654,7 +678,7 @@ mod live {
         };
         let c = PawchiveClient::default();
         assert!(matches!(
-            c.favorite_creators().await,
+            c.get_favorite_creators().await,
             Err(Error::Unauthorized)
         ));
         assert!(matches!(
@@ -673,13 +697,13 @@ mod live {
             c.add_favorite_post(svc, id, "0").await,
             Err(Error::NotFound)
         ));
-        assert!(c.favorite_creators().await.unwrap().is_empty());
+        assert!(c.get_favorite_creators().await.unwrap().is_empty());
         c.add_favorite_creator(svc, id).await.unwrap();
-        let got = c.favorite_creators().await;
+        let got = c.get_favorite_creators().await;
         c.remove_favorite_creator(svc, id).await.unwrap(); // clean up before asserting
         assert!(got.unwrap().iter().any(|f| f.profile.id == id));
         c.add_favorite_post(svc, id, "176121337").await.unwrap();
-        let got = c.favorite_posts().await;
+        let got = c.get_favorite_posts().await;
         c.remove_favorite_post(svc, id, "176121337").await.unwrap();
         let got = got.unwrap();
         assert!(got.iter().any(|f| f.post.id == "176121337"));

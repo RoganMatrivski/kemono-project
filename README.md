@@ -67,7 +67,7 @@ There is no JSON login. `login(user, pass)` posts the website form, keeps the `s
 ```rust
 let session = c.login(&user, &pass).await?;   // Err(Error::Unauthorized) if rejected
 let c2 = PawchiveClient::default().with_session(session);   // later, no login needed
-let favs = c.favorite_creators().await?;
+let favs = c.favorite_creators().await?;          // Vec<Creator> handles; get_favorite_creators() has faved_seq etc.
 c.add_favorite_post("patreon", "110390090", "176121337").await?; // 204, idempotent
 ```
 
