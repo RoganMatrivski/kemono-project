@@ -51,7 +51,7 @@ Run the bundled example: `cargo run -p kemono-core --example pawchive`.
 - **Pagination:** the offset `o` must be a multiple of 50 (otherwise `Error::BadRequest`).
   `get_all_user_posts` walks the pages; pass `max_pages` for big creators.
 - **Empty results:** comments and revisions return a 404 when there are none; the client turns that into `Vec::new()`.
-- **Tags** come back as a Postgres array literal string; use `PawchivePost::parsed_tags()`.
+- **Tags** come back as a Postgres array literal string or (on some fanbox posts) a JSON array; use `PawchivePost::parsed_tags()`.
 - **Timestamps** are `jiff` types. Most are ISO strings without a timezone (`jiff::civil::DateTime`);
   `get_creators` uses Unix seconds (`jiff::Timestamp`).
 - **File URLs:** `PawchiveFile::url()` builds `{server}/data{path}?f={name}`. The file hosts are hotlink-protected:

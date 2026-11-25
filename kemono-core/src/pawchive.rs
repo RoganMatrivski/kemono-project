@@ -736,4 +736,16 @@ mod live {
             .unwrap();
         assert!(tagged.len() < 50 && !tagged.is_empty());
     }
+
+    /// Regression: fanbox pages mix `tags: null` and `tags: [..]` (JSON array).
+    #[tokio::test]
+    #[ignore = "hits pawchive.pw"]
+    async fn live_mixed_tag_shapes() {
+        let c = PawchiveClient::default();
+        let page = c
+            .get_user_posts("fanbox", "82304", None, Some(350), None)
+            .await
+            .unwrap();
+        assert!(page.iter().any(|p| !p.parsed_tags().is_empty()));
+    }
 }

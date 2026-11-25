@@ -72,9 +72,9 @@ pub struct PawchivePost {
     pub poll: Value,
     #[serde(default)]
     pub captions: Value,
-    /// Raw Postgres array literal (`{"a b",c}`) or null. See [`Self::parsed_tags`].
+    /// Raw tags: a Postgres array literal, a JSON array, or null. See [`Self::parsed_tags`].
     #[serde(default)]
-    pub tags: Option<String>,
+    pub tags: Option<RawTags>,
     #[serde(default)]
     pub origin: Option<String>,
     #[serde(default)]
@@ -90,9 +90,23 @@ pub struct PawchivePost {
 }
 
 impl PawchivePost {
+    /// Tags as a list, whichever shape the server sent.
     pub fn parsed_tags(&self) -> Vec<String> {
-        self.tags.as_deref().map(parse_pg_array).unwrap_or_default()
+        match &self.tags {
+            Some(RawTags::Pg(s)) => parse_pg_array(s),
+            Some(RawTags::List(v)) => v.clone(),
+            None => Vec::new(),
+        }
     }
+}
+
+/// Tags arrive either as a Postgres array literal (`{"a b",c}`) or as a JSON array
+/// (seen on fanbox posts, mixed within one page).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RawTags {
+    Pg(String),
+    List(Vec<String>),
 }
 
 /// A favorite post: the full post plus `faved_seq`. Its `file` uses `node`, not `server`.
@@ -199,6 +213,17 @@ mod tests {
             p.file.url().unwrap().as_str(),
             "https://n2.pawchive.pw/data/244/ad/h.png?f=x+y.png"
         );
+    }
+
+    #[test]
+    fn tags_as_json_array() {
+        let j = r#"{"id":"1","user":"2","service":"fanbox","tags":["A b","c"]}"#;
+        let p: PawchivePost = serde_json::from_str(j).unwrap();
+        assert_eq!(p.parsed_tags(), ["A b", "c"]);
+        assert_eq!(p.tags, Some(RawTags::List(vec!["A b".into(), "c".into()])));
+        // survives a round trip
+        let back: PawchivePost = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        assert_eq!(back.parsed_tags(), ["A b", "c"]);
     }
 
     #[test]

@@ -13,4 +13,5 @@ pub use creator::{
 pub use hash::{PawchiveHashFile, PawchiveHashPost, PawchiveHashSearch};
 pub use post::{
     PawchiveFavoritePost, PawchiveFile, PawchivePost, PawchivePostSummary, PawchiveRevision,
+    RawTags,
 };
